@@ -1,5 +1,6 @@
 """Offscreen rendering tests for readable text on light and dark desktops."""
 
+from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
@@ -78,7 +79,7 @@ class ContrastTextTests(unittest.TestCase):
     def test_simple_and_modern_draw_text_with_shared_shadow(self):
         for style, expected in (("simple", 1), ("modern", 3)):
             with self.subTest(style=style):
-                overlay = Overlay("bottom_left", PhaseConfig("作業", 45, color="black"), style)
+                overlay = Overlay(PhaseConfig("作業", 45, color="black", simple=(style == "simple")))
                 overlay.show()
                 self.app.processEvents()
                 with patch("focusloop.overlay.draw_shadowed_text", wraps=draw_shadowed_text) as draw:
