@@ -166,7 +166,7 @@ class CardSettingsTests(unittest.TestCase):
 
     def test_update_controls_show_version_without_changing_timer(self):
         version = self.dialog.version_label.text()
-        self.assertEqual(version, "1.0.2")
+        self.assertEqual(version, "1.0.0")
         self.assertEqual(self.dialog.update_button.text(), "更新を確認")
         self.assertTrue(self.dialog.update_button.isEnabled())
         phases = [card.snapshot() for card in self.dialog.cards]
@@ -437,7 +437,7 @@ class AppRegressionTests(unittest.TestCase):
     def test_japanese_update_dialogs_use_polite_messages(self):
         self.controller.show_settings()
         self.assertEqual(self.controller.language, "ja")
-        release = Mock(version="1.0.3")
+        release = Mock(version="1.0.1")
 
         with patch.object(QMessageBox, "warning") as warning:
             self.controller._on_update_checked(None, "network error")
@@ -452,7 +452,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = info.call_args.args[2]
-            self.assertIn("新しいバージョン 1.0.3 を利用できます。", message)
+            self.assertIn("新しいバージョン 1.0.1 を利用できます。", message)
             self.assertIn("Windows配布版のみ対応しています。", message)
 
         with (
@@ -462,7 +462,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = question.call_args.args[2]
-            self.assertIn("1.0.3 に更新しますか？", message)
+            self.assertIn("1.0.1 に更新しますか？", message)
             self.assertIn("自動的に再起動します。", message)
 
         with patch.object(QMessageBox, "warning") as warning:
