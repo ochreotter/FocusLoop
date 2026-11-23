@@ -51,11 +51,12 @@ class Overlay(QWidget):
         super().__init__()
         flags = (
             Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
             | Qt.WindowType.WindowTransparentForInput
             | Qt.WindowType.WindowDoesNotAcceptFocus
         )
+        if phase.topmost:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -129,6 +130,7 @@ class Overlay(QWidget):
         resized = (phase.font_size != self.phase_config.font_size
                    or style != self.display_style)
         repositioned = phase.position != self.position_name
+        topmost_changed = phase.topmost != self.phase_config.topmost
         changed = (
             (text, phase, remaining_ratio, loop_number)
             != (self.clock_text, self.phase_config, self.remaining_ratio, self.loop_number)
@@ -141,6 +143,11 @@ class Overlay(QWidget):
         self.loop_number = loop_number
         self.position_name = phase.position
         self.display_style = style
+        if topmost_changed:
+            visible = self.isVisible()
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, phase.topmost)
+            if visible:
+                self.show()
         if resized:
             self._resize_and_reposition()
         else:
