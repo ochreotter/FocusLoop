@@ -97,7 +97,7 @@ class SettingsDialog(QDialog):
         form.addRow("ループ数", loop_row)
 
         self.table = QTableWidget(0, 8, self)
-        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "文字サイズ", "透過率", "グラデーション", "終了色", "削除"))
+        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "サイズ", "透過率", "グラデーション", "終了色", "削除"))
         handle = self.table.verticalHeader()
         handle.show()
         handle.setFixedWidth(44)
@@ -108,7 +108,7 @@ class SettingsDialog(QDialog):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
@@ -188,11 +188,22 @@ class SettingsDialog(QDialog):
         color.setCurrentIndex(max(0, color.findData(phase["color"])))
         self.table.setCellWidget(row, 2, color)
 
-        font_size = QSpinBox(self.table)
+        size_cell = QWidget(self.table)
+        size_layout = QHBoxLayout(size_cell)
+        size_layout.setContentsMargins(4, 0, 4, 0)
+        font_size = QSlider(Qt.Orientation.Horizontal, size_cell)
         font_size.setRange(MIN_FONT_SIZE, MAX_FONT_SIZE)
-        font_size.setSuffix(" pt")
+        font_size.setSingleStep(1)
+        font_size.setPageStep(10)
         font_size.setValue(int(phase["font_size"]))
-        self.table.setCellWidget(row, 3, font_size)
+        font_size_label = QLabel(f"{font_size.value()} pt", size_cell)
+        font_size_label.setMinimumWidth(52)
+        font_size.valueChanged.connect(
+            lambda value, label=font_size_label: self._size_changed(label, value)
+        )
+        size_layout.addWidget(font_size)
+        size_layout.addWidget(font_size_label)
+        self.table.setCellWidget(row, 3, size_cell)
 
         opacity_cell = QWidget(self.table)
         opacity_layout = QHBoxLayout(opacity_cell)
@@ -232,7 +243,6 @@ class SettingsDialog(QDialog):
         name.textChanged.connect(lambda _text: self._notify_change())
         minutes.valueChanged.connect(lambda _value: self._notify_change())
         color.currentIndexChanged.connect(lambda _index: self._notify_change())
-        font_size.valueChanged.connect(lambda _value: self._notify_change())
         gradient.toggled.connect(lambda _value: self._notify_change())
         gradient_end.currentIndexChanged.connect(lambda _value: self._notify_change())
         opacity.valueChanged.connect(
@@ -244,6 +254,10 @@ class SettingsDialog(QDialog):
 
     def set_loop_number(self, number: int) -> None:
         self.loop_label.setText(f"LOOP {number:02d}")
+
+    def _size_changed(self, label: QLabel, value: int) -> None:
+        label.setText(f"{value} pt")
+        self._notify_change()
 
     def _opacity_changed(self, label: QLabel, value: int) -> None:
         label.setText(f"{value}%")
@@ -291,7 +305,7 @@ class SettingsDialog(QDialog):
                 "name": self.table.cellWidget(index, 0).text(),
                 "minutes": self.table.cellWidget(index, 1).value(),
                 "color": self.table.cellWidget(index, 2).currentData(),
-                "font_size": self.table.cellWidget(index, 3).value(),
+                "font_size": self.table.cellWidget(index, 3).findChild(QSlider).value(),
                 "opacity": opacity_cell.findChild(QSlider).value(),
                 "gradient": self.table.cellWidget(index, 5).isChecked(),
                 "gradient_end": self.table.cellWidget(index, 6).currentData(),
