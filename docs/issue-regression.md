@@ -41,6 +41,7 @@
 | #44 | 最前面チェックをフェーズごとに保存/切替、透過維持 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #45 | 2列のフェーズカード・アコーディオン、要約表示、追加削除・上下/ドラッグ並べ替え | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #53 | 8〜300pt・設定画面で一時停止/再開・Modernの上部にフェーズ名、下部にLOOP | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py`, `tests/ui/test_overlay_contrast.py` |
+| #55 | フェーズ別非表示チェック、切替時の自動再表示、裏側のタイマー・トレイ継続、初期化/保存/旧設定との互換 | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
 
 ## リファクタリング判断
 
