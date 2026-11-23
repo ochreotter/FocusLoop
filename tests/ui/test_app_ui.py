@@ -52,6 +52,8 @@ class CardSettingsTests(unittest.TestCase):
         self.assertIn("45分", first.summary.text())
         self.assertIn("左下", first.summary.text())
         self.assertIn("最前面ON", first.summary.text())
+        self.assertFalse(first.hidden.isChecked())
+        self.assertNotIn("非表示", first.summary.text())
         self.assertIn("ホワイト", first.summary.text())
         self.assertIn("標準", first.summary.text())
         self.assertFalse(hasattr(first, "main_swatch"))
@@ -119,6 +121,7 @@ class CardSettingsTests(unittest.TestCase):
         card.simple.setChecked(True)
         card.position.setCurrentIndex(card.position.findData("center"))
         card.topmost.setChecked(False)
+        card.hidden.setChecked(True)
         self.assertEqual(card.size_label.text(), "196 pt")
         self.assertEqual(card.opacity_label.text(), "42%")
         phase = self.dialog.result_phases[0]
@@ -129,6 +132,8 @@ class CardSettingsTests(unittest.TestCase):
         )
         self.assertIn("Simple", card.summary.text())
         self.assertIn("最前面OFF", card.summary.text())
+        self.assertIn("非表示", card.summary.text())
+        self.assertTrue(self.dialog.result_phases[0].hidden)
         self.assertIn("中央", card.summary.text())
         self.assertIn("集中", card.title.text())
         self.assertEqual(card.name.maxLength(), 40)
@@ -300,6 +305,78 @@ class AppRegressionTests(unittest.TestCase):
         self.controller.show_settings()
         self.assertEqual(self.controller.settings_dialog.pause_button.text(), "再開")
 
+    def test_hidden_phase_hides_only_overlay_and_resumes_on_phase_transition(self):
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        work, rest = dialog.cards
+        self.assertFalse(work.hidden.isChecked())
+        self.assertFalse(rest.hidden.isChecked())
+
+        # Mimic app.start() without requiring an OS tray in offscreen Qt tests.
+        self.controller._overlay_started = True
+        self.controller.update()
+        self.assertTrue(self.controller.overlay.isVisible())
+        before = self.controller.timer_model.remaining_seconds()
+        work.hidden.setChecked(True)
+        self.assertTrue(self.controller.timer_model.phases[0].hidden)
+        self.assertFalse(self.controller.overlay.isVisible())
+        self.assertTrue(dialog.isVisible())
+        self.assertTrue(work.isVisible())
+        self.assertIn("非表示", work.summary.text())
+        self.assertLessEqual(abs(self.controller.timer_model.remaining_seconds() - before), 1)
+
+        # The hidden phase can be paused/resumed without changing visibility.
+        dialog.pause_button.click()
+        self.assertTrue(self.controller.timer_model.paused)
+        self.assertFalse(self.controller.overlay.isVisible())
+        self.assertEqual(dialog.pause_button.text(), "再開")
+        dialog.pause_button.click()
+        self.assertFalse(self.controller.timer_model.paused)
+
+        self.controller.skip()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩")
+        self.assertTrue(self.controller.overlay.isVisible())
+        self.assertEqual(self.controller.overlay.clock_text, "15:00")
+        self.controller.skip()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "作業")
+        self.assertFalse(self.controller.overlay.isVisible())
+        self.assertEqual(self.controller.timer_model.loop_number, 2)
+
+        work.hidden.setChecked(False)
+        self.assertTrue(self.controller.overlay.isVisible())
+        self.assertNotIn("非表示", work.summary.text())
+
+    def test_hidden_setting_persists_and_initialization_restores_visibility(self):
+        self.controller._overlay_started = True
+        self.controller.update()
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        first, second = dialog.cards
+        first.hidden.setChecked(True)
+        second.hidden.setChecked(True)
+        self.assertFalse(self.controller.overlay.isVisible())
+        self.controller.settings.sync()
+        stored = QSettings(self.ini, QSettings.Format.IniFormat)
+        self.assertIn('"hidden": true', stored.value("phases_json"))
+
+        reopened = FocusLoopApp(self.app)
+        self.assertTrue(all(p.hidden for p in reopened.timer_model.phases))
+        self.assertFalse(reopened.overlay.isVisible())
+        reopened._overlay_started = True
+        reopened.update()
+        self.assertFalse(reopened.overlay.isVisible())
+        reopened.timer_model.skip()
+        reopened.update()
+        self.assertFalse(reopened.overlay.isVisible())
+        reopened.close()
+
+        self.controller._initialize_defaults()
+        self.assertEqual(self.controller.timer_model.phases, default_phases())
+        self.assertTrue(self.controller.overlay.isVisible())
+        self.assertFalse(dialog.cards[0].hidden.isChecked())
+        self.assertFalse(dialog.cards[1].hidden.isChecked())
+        self.assertEqual(dialog.pause_button.text(), "一時停止")
+
     def test_per_phase_display_position_and_topmost_switch_on_skip(self):
         self.controller.overlay.show()
         self.controller.show_settings()
@@ -415,6 +492,7 @@ class AppRegressionTests(unittest.TestCase):
         self.assertTrue(dialog.isVisible())
         self.assertFalse(dialog.cards[0].simple.isChecked())
         self.assertTrue(dialog.cards[0].topmost.isChecked())
+        self.assertFalse(dialog.cards[0].hidden.isChecked())
         self.assertEqual(dialog.cards[0].position.currentData(), "bottom_left")
 
     def test_tray_actions_notifications_and_icons(self):
