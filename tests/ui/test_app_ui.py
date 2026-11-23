@@ -123,6 +123,7 @@ class CardSettingsTests(unittest.TestCase):
         first.position.setCurrentIndex(first.position.findData("top_right"))
         first.topmost.setChecked(False)
         self.dialog._add_phase()
+        first = self.dialog.cards[0]  # _add_phase rebuilds card widgets.
         self.assertEqual(len(self.dialog.cards), 3)
         self.assertEqual(self.dialog.cards[-1].name.text(), "新しいフェーズ")
         self.assertEqual(self.dialog.cards[-1].minutes.value(), 5)
