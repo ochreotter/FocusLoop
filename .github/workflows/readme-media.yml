@@ -1,0 +1,37 @@
+name: Generate README screenshots and GIF (one shot)
+
+on:
+  push:
+    branches: [docs/bilingual-readme-media]
+    paths:
+      - '.github/workflows/readme-media.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  render-readme-media:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: docs/bilingual-readme-media
+          persist-credentials: true
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Qt and image dependencies
+        run: python -m pip install -r requirements.txt Pillow
+      - name: Capture actual FocusLoop UI and animated timer frames
+        run: python -m scripts.generate_readme_media
+      - name: Commit images to README branch
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f docs/assets/focusloop-settings-en.png docs/assets/focusloop-settings-ja.png docs/assets/focusloop-demo.gif
+          git commit -m "docs: add captured settings screenshots and accelerated timer demo"
+          git push origin HEAD:docs/bilingual-readme-media
