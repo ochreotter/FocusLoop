@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QSize, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QDrag, QGuiApplication, QIcon, QPainter, QPixmap
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from .geometry import tray_menu_position
+from .i18n import LANGUAGES, phase_name, translate as tr
 from .icons import clock_icon
 from .overlay import Overlay
 from .timer import (
@@ -77,18 +78,19 @@ def color_swatch_icon(hex_value: str) -> QIcon:
     return QIcon(image)
 
 
-def color_combo(parent: QWidget, selected: str) -> QComboBox:
+def color_combo(parent: QWidget, selected: str, language: str = "ja") -> QComboBox:
     """Build identical main/secondary palettes with visible color swatches."""
     combo = QComboBox(parent)
     combo.setIconSize(QSize(18, 18))
     for key, label, hex_value in COLOR_PRESETS:
-        combo.addItem(color_swatch_icon(hex_value), label, key)
+        combo.addItem(color_swatch_icon(hex_value), tr(label, language), key)
     combo.setCurrentIndex(max(0, combo.findData(selected)))
     return combo
 
 
 def confirm_change(
     parent: QWidget, title: str, question: str, details: str, confirm_label: str,
+    language: str = "ja",
 ) -> bool:
     """Shared safe confirmation: cancel is the default, including Escape/close."""
     message = QMessageBox(parent)
@@ -101,7 +103,7 @@ def confirm_change(
     )
     message.button(QMessageBox.StandardButton.Yes).setText(confirm_label)
     cancel = message.button(QMessageBox.StandardButton.Cancel)
-    cancel.setText("キャンセル")
+    cancel.setText(tr("キャンセル", language))
     message.setDefaultButton(cancel)
     for button in message.buttons():
         button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -115,7 +117,7 @@ class PhaseDragHandle(QToolButton):
         super().__init__(card)
         self.card = card
         self.setText("⠿")
-        self.setToolTip("ドラッグして順番を変更")
+        self.setToolTip(tr("ドラッグして順番を変更", card.owner.language))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._press_point: QPoint | None = None
 
@@ -188,14 +190,14 @@ class PhaseCard(QFrame):
         caption.addWidget(self.summary)
         self.move_up = QToolButton(self.header_widget)
         self.move_up.setText("↑")
-        self.move_up.setToolTip("上へ移動")
+        self.move_up.setToolTip(tr("上へ移動", owner.language))
         self.move_down = QToolButton(self.header_widget)
         self.move_down.setText("↓")
-        self.move_down.setToolTip("下へ移動")
+        self.move_down.setToolTip(tr("下へ移動", owner.language))
         self.expand_button = QToolButton(self.header_widget)
         self.expand_button.setText("∨")
-        self.expand_button.setToolTip("カードを開く／閉じる")
-        self.expand_button.setAccessibleName("フェーズ設定の開閉")
+        self.expand_button.setToolTip(tr("カードを開く／閉じる", owner.language))
+        self.expand_button.setAccessibleName(tr("フェーズ設定の開閉", owner.language))
         self.expand_button.setFixedSize(32, 32)
         self.expand_button.setCheckable(True)
         self.expand_button.toggled.connect(self._toggle_expanded)
@@ -226,33 +228,34 @@ class PhaseCard(QFrame):
             column = QVBoxLayout(area)
             column.setContentsMargins(0, 0, 0, 0)
             column.setSpacing(3)
-            label_widget = QLabel(label, area)
+            label_widget = QLabel(tr(label, owner.language), area)
             column.addWidget(label_widget)
             column.addWidget(editor)
             fields.addWidget(area, row, col)
 
 
-        self.name = QLineEdit(str(values["name"]), self.body)
+        self._source_name = str(values["name"])
+        self.name = QLineEdit(phase_name(self._source_name, owner.language), self.body)
         self.name.setMaxLength(40)
-        self.name.setPlaceholderText("フェーズ名")
+        self.name.setPlaceholderText(tr("フェーズ名", owner.language))
         field(0, 0, "フェーズ名", self.name)
 
         self.minutes = QSpinBox(self.body)
         self.minutes.setRange(1, 240)
-        self.minutes.setSuffix(" 分")
+        self.minutes.setSuffix(tr(" 分", owner.language))
         self.minutes.setValue(int(values["minutes"]))
         field(0, 1, "時間", self.minutes)
 
-        self.color = color_combo(self.body, values["color"])
+        self.color = color_combo(self.body, values["color"], owner.language)
         field(1, 0, "メイン色", self.color)
 
         secondary = QWidget(self.body)
         secondary_layout = QHBoxLayout(secondary)
         secondary_layout.setContentsMargins(0, 0, 0, 0)
         self.gradient = QCheckBox("ON", secondary)
-        self.gradient.setToolTip("グラデーション")
+        self.gradient.setToolTip(tr("グラデーション", owner.language))
         self.gradient.setChecked(bool(values["gradient"]))
-        self.gradient_end = color_combo(secondary, values["gradient_end"])
+        self.gradient_end = color_combo(secondary, values["gradient_end"], owner.language)
         self.gradient_end.setEnabled(self.gradient.isChecked())
         self.gradient.toggled.connect(self.gradient_end.setEnabled)
         secondary_layout.addWidget(self.gradient)
@@ -292,10 +295,10 @@ class PhaseCard(QFrame):
         window_layout = QHBoxLayout(window_options)
         window_layout.setContentsMargins(0, 0, 0, 0)
         window_layout.setSpacing(14)
-        self.topmost = QCheckBox("最前面に表示", window_options)
+        self.topmost = QCheckBox(tr("最前面に表示", owner.language), window_options)
         self.topmost.setChecked(bool(values["topmost"]))
-        self.hidden = QCheckBox("非表示", window_options)
-        self.hidden.setToolTip("このフェーズの間はタイマー表示だけを隠す")
+        self.hidden = QCheckBox(tr("非表示", owner.language), window_options)
+        self.hidden.setToolTip(tr("このフェーズの間はタイマー表示だけを隠す", owner.language))
         self.hidden.setChecked(bool(values["hidden"]))
         window_layout.addWidget(self.topmost)
         window_layout.addWidget(self.hidden)
@@ -304,7 +307,7 @@ class PhaseCard(QFrame):
 
         self.position = QComboBox(self.body)
         for label, value in POSITIONS:
-            self.position.addItem(label, value)
+            self.position.addItem(tr(label, owner.language), value)
         self.position.setCurrentIndex(max(0, self.position.findData(values["position"])))
         field(4, 0, "表示位置", self.position)
 
@@ -312,7 +315,7 @@ class PhaseCard(QFrame):
         delete_layout = QHBoxLayout(delete_area)
         delete_layout.setContentsMargins(0, 0, 0, 0)
         delete_layout.addStretch()
-        self.delete_button = QPushButton("削除", delete_area)
+        self.delete_button = QPushButton(tr("削除", owner.language), delete_area)
         self.delete_button.setFixedSize(54, 26)
         self.delete_button.setStyleSheet(
             "QPushButton { background-color: #F9EAEC; color: #964650; "
@@ -321,7 +324,7 @@ class PhaseCard(QFrame):
             "QPushButton:hover { background-color: #F3DBDF; color: #853942; } "
             "QPushButton:pressed { background-color: #EBC9CE; }"
         )
-        self.delete_button.setToolTip("フェーズを削除（確認あり）")
+        self.delete_button.setToolTip(tr("フェーズを削除（確認あり）", owner.language))
         self.delete_button.clicked.connect(lambda: owner._confirm_delete_card(self))
         delete_layout.addWidget(self.delete_button)
         fields.addWidget(delete_area, 4, 1)
@@ -357,7 +360,10 @@ class PhaseCard(QFrame):
 
     def snapshot(self) -> dict:
         return {
-            "name": self.name.text(),
+            "name": (
+                self._source_name if self.name.text() == phase_name(self._source_name, self.owner.language)
+                else self.name.text()
+            ),
             "minutes": self.minutes.value(),
             "color": self.color.currentData(),
             "gradient": self.gradient.isChecked(),
@@ -371,19 +377,19 @@ class PhaseCard(QFrame):
         }
 
     def _refresh_summary(self) -> None:
-        self.title.setText(self.name.text() or "（名前未入力）")
-        colors = dict((key, label) for key, label, _hex in COLOR_PRESETS)
-        positions = dict((value, label) for label, value in POSITIONS)
+        self.title.setText(self.name.text() or tr("（名前未入力）", self.owner.language))
+        colors = dict((key, tr(label, self.owner.language)) for key, label, _hex in COLOR_PRESETS)
+        positions = dict((value, tr(label, self.owner.language)) for label, value in POSITIONS)
         main = colors.get(self.color.currentData(), "?")
         secondary = (
             f" → {colors.get(self.gradient_end.currentData(), '?')}"
             if self.gradient.isChecked() else ""
         )
-        mode = "Simple" if self.simple.isChecked() else "標準"
-        front = "最前面ON" if self.topmost.isChecked() else "最前面OFF"
-        visibility = " · 非表示" if self.hidden.isChecked() else ""
+        mode = "Simple" if self.simple.isChecked() else tr("標準", self.owner.language)
+        front = tr("最前面ON" if self.topmost.isChecked() else "最前面OFF", self.owner.language)
+        visibility = f" · {tr('非表示', self.owner.language)}" if self.hidden.isChecked() else ""
         self.summary.setText(
-            f"{self.minutes.value()}分 · {main}{secondary} · "
+            f"{self.minutes.value()}{tr(' 分', self.owner.language).strip() if self.owner.language == 'ja' else ' min'} · {main}{secondary} · "
             f"{mode} · {positions.get(self.position.currentData(), '?')} · "
             f"{front}{visibility}"
         )
