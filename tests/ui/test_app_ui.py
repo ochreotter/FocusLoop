@@ -263,9 +263,10 @@ class CardSettingsTests(unittest.TestCase):
         self.assertEqual(footer.spacing(), 6)
 
         self.assertEqual(
-            [footer.itemAt(i).widget().text() for i in range(5)],
+            [footer.itemAt(i).widget().text() for i in range(6)],
             [
                 "一時停止",
+                "前のフェーズへ",
                 "次のフェーズへ",
                 "現在のフェーズをリセット",
                 "ループ数をリセット",
@@ -273,15 +274,16 @@ class CardSettingsTests(unittest.TestCase):
             ],
         )
         self.assertIs(footer.itemAt(0).widget(), self.dialog.pause_button)
-        self.assertIs(footer.itemAt(1).widget(), self.dialog.skip_button)
-        self.assertIs(footer.itemAt(2).widget(), self.dialog.timer_reset_button)
-        self.assertIs(footer.itemAt(3).widget(), self.dialog.loop_reset_button)
-        self.assertIs(footer.itemAt(4).widget(), self.dialog.loop_label)
-        self.assertIsNotNone(footer.itemAt(5).spacerItem())
+        self.assertIs(footer.itemAt(1).widget(), self.dialog.previous_button)
+        self.assertIs(footer.itemAt(2).widget(), self.dialog.skip_button)
+        self.assertIs(footer.itemAt(3).widget(), self.dialog.timer_reset_button)
+        self.assertIs(footer.itemAt(4).widget(), self.dialog.loop_reset_button)
+        self.assertIs(footer.itemAt(5).widget(), self.dialog.loop_label)
+        self.assertIsNotNone(footer.itemAt(6).spacerItem())
 
         # No spacer between settings reset and Close: both belong to one
         # right-aligned group using the same 6px as the left-hand controls.
-        right = footer.itemAt(6).layout()
+        right = footer.itemAt(7).layout()
         self.assertIsNotNone(right)
         self.assertEqual(right.spacing(), footer.spacing())
         self.assertEqual((right.contentsMargins().left(),
@@ -294,14 +296,15 @@ class CardSettingsTests(unittest.TestCase):
 
         calls = []
         self.dialog.pause_toggle.connect(lambda: calls.append("pause"))
+        self.dialog.previous_requested.connect(lambda: calls.append("previous"))
         self.dialog.skip_requested.connect(lambda: calls.append("next"))
         self.dialog.timer_reset.connect(lambda: calls.append("timer"))
         self.dialog.loop_reset.connect(lambda: calls.append("loop"))
-        for index in range(4):
+        for index in range(5):
             footer.itemAt(index).widget().click()
-        self.assertEqual(calls, ["pause", "next", "timer", "loop"])
+        self.assertEqual(calls, ["pause", "previous", "next", "timer", "loop"])
         self.dialog.set_loop_number(12)
-        self.assertEqual(footer.itemAt(4).widget().text(), "LOOP 12")
+        self.assertEqual(footer.itemAt(5).widget().text(), "LOOP 12")
         self.dialog.set_pause_state(True)
         self.assertEqual(footer.itemAt(0).widget().text(), "再開")
 
@@ -668,14 +671,15 @@ class AppRegressionTests(unittest.TestCase):
 
     def test_tray_footer_action_order_and_both_reset_entrypoints(self):
         expected = [
-            "一時停止", "次のフェーズへ", "現在のフェーズをリセット",
-            "ループ数をリセット",
+            "一時停止", "前のフェーズへ", "次のフェーズへ",
+            "現在のフェーズをリセット", "ループ数をリセット",
         ]
         tray_actions = self.controller.menu.actions()
         actual = [
             action.text() for action in tray_actions
             if action in (
                 self.controller.pause_action,
+                self.controller.previous_action,
                 self.controller.skip_action,
                 self.controller.reset_action,
                 self.controller.loop_reset_action,
@@ -687,7 +691,7 @@ class AppRegressionTests(unittest.TestCase):
         self.controller.show_settings()
         dialog = self.controller.settings_dialog
         footer = dialog.layout().itemAt(dialog.layout().count() - 1).layout()
-        self.assertEqual([footer.itemAt(i).widget().text() for i in range(4)],
+        self.assertEqual([footer.itemAt(i).widget().text() for i in range(5)],
                          expected)
 
         # Footer's next action must call the same skip operation as the tray.
@@ -699,6 +703,20 @@ class AppRegressionTests(unittest.TestCase):
         self.controller.skip_action.trigger()
         self.assertEqual(self.controller.timer_model.current_phase.name, "作業中")
         self.assertTrue(self.controller.timer_model.paused)
+
+        # Both previous entrypoints navigate backward and keep the paused state.
+        self.controller.timer_model.loop_number = 3
+        dialog.previous_button.click()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
+        self.assertEqual(self.controller.timer_model.loop_number, 2)
+        self.assertEqual(self.controller.timer_model.remaining_seconds(), 900)
+        self.assertTrue(self.controller.timer_model.paused)
+        self.controller.previous_action.trigger()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "作業中")
+        self.assertEqual(self.controller.timer_model.loop_number, 2)
+        self.assertEqual(self.controller.timer_model.remaining_seconds(), 2700)
+        self.assertTrue(self.controller.timer_model.paused)
+        self.assertEqual(dialog.loop_label.text(), "LOOP 02")
 
         # Both loop reset paths preserve the actual countdown and phase.
         for reset in (self.controller.loop_reset_action.trigger,
@@ -715,8 +733,9 @@ class AppRegressionTests(unittest.TestCase):
 
     def test_tray_actions_notifications_and_icons(self):
         labels = [x.text() for x in self.controller.menu.actions()]
-        for value in ("一時停止", "次のフェーズへ", "現在のフェーズをリセット",
-                      "ループ数をリセット", "設定", "終了"):
+        for value in ("一時停止", "前のフェーズへ", "次のフェーズへ",
+                      "現在のフェーズをリセット", "ループ数をリセット",
+                      "設定", "終了"):
             self.assertIn(value, labels)
         with patch.object(self.controller, "show_settings") as show:
             self.controller._tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
