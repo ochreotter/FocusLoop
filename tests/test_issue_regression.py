@@ -45,7 +45,7 @@ class IssueContractTests(unittest.TestCase):
         timer = FocusTimer(phases, now=0.0)
         replacement = replace(
             phases[0], name="編集", color="black", opacity=0,
-            font_size=200, gradient=False, gradient_end="white",
+            font_size=300, gradient=False, gradient_end="white",
         )
         timer.configure((replacement, phases[1]), now=100.0)
         self.assertEqual(timer.remaining_seconds(now=100.0), 2600)
@@ -57,12 +57,12 @@ class IssueContractTests(unittest.TestCase):
         timer.configure(tuple(reversed(timer.phases)), now=100.0, force_restart=True)
         self.assertEqual(timer.current_phase.name, "休憩")
         self.assertEqual(timer.remaining_seconds(now=100.0), 900)
-        self.assertEqual(timer.phases[1].font_size, 200)
+        self.assertEqual(timer.phases[1].font_size, 300)
 
         with self.assertRaises(ValueError):
             PhaseConfig("a", 45, font_size=7)
         with self.assertRaises(ValueError):
-            PhaseConfig("a", 45, font_size=201)
+            PhaseConfig("a", 45, font_size=301)
         with self.assertRaises(ValueError):
             PhaseConfig("a" * 41, 45)
         with self.assertRaises(ValueError):
