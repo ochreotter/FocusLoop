@@ -4,7 +4,7 @@ Windows向けの背景が透明な繰り返しタイマーです。最前面表�
 
 ## 機能
 
-- 初期状態は **作業中45分 → 休憩中15分** を自動で繰り返します。画像に合わせた色・サイズ・透過率・表示位置を設定しています。
+- 初期状態は **作業中45分 → 休憩中15分** を自動で繰り返します。作業中・休憩中で異なる色・サイズ・不透明度・表示位置を初期設定しています。
 - フェーズを自由に追加・削除・並べ替えできます（最低1フェーズ）。
 - **日本語・英語切替**: 設定画面最上部の **言語 / Language** で日本語・Englishを選択できます。そのすぐ右隣には、アプリ全体の **「通知する / Notifications」チェック**があります。通知は初期状態でON、OFFにすると自動フェーズ切替・手動スキップ時のWindows通知を止めます。タイマー自体は継続し、通知設定は保存されます。「設定初期化」では通知ONに戻ります。設定項目・ツールチップ・ボタン・システムトレイ・通知・確認ダイアログを即時に切り替え、選択言語を保存して次回起動時に復元します。切替時はタイマーの残り時間・ループ数・各フェーズの設定を維持します。
 - **フェーズ名は標準名・独自名を問わず一切翻訳しません**。英語UIでも設定画面・画面表示・通知には保存済みのフェーズ名をそのまま使います。「設定初期化」をしても選択中の言語は維持します。
@@ -46,14 +46,14 @@ Windows向けの背景が透明な繰り返しタイマーです。最前面表�
 
 ## Windowsで使う
 
-**正式版**: [GitHub Releases](https://github.com/ochreotter/FocusLoop/releases)で最新のReleaseから `FocusLoop.exe` をダウンロードします。リリースがまだない場合は、次の方法で開発版のビルドを取得できます。
+**正式版**: [GitHub Releases](https://github.com/ochreotter/FocusLoop/releases)から `FocusLoop-Windows.zip` をダウンロードして展開し、フォルダー内の `FocusLoop.exe` を起動します。**DLLを含むフォルダー全体を保持してください**（EXEだけの移動では起動できません）。正式版が公開されていない場合は、次の手順で開発版を取得できます。
 
 1. GitHubの **Actions → Build Windows EXE** を開きます。
 2. `main`ブランチの成功した実行を選択します。
 3. **Artifacts → FocusLoop-Windows** からZIPをダウンロードします。
-4. 展開してFocusLoop.exeを実行します。Pythonは不要です。
+4. ZIPを展開して `FocusLoop/FocusLoop.exe` を実行します。Pythonの別途インストールは不要です。
 
-EXEは未署名のため、Windows SmartScreenで警告が出る場合があります。Qt/PySide6など同梱ライブラリのライセンス情報は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を確認してください。
+EXEは未署名のため、Windows SmartScreenで警告が出る場合があります。本ソフトウェアは**PySide6/Qt（LGPLv3）**を使用しています。利用者による互換ライブラリへの差し替えについては [ライブラリ差し替え手順](docs/library-replacement.md)、著作権表示とライセンスについては [サードパーティーライセンス](THIRD_PARTY_NOTICES.md) を参照してください。
 
 ## ソースから実行
 
@@ -83,25 +83,7 @@ Python 3.11以降を用意して、Windowsで次を実行します。
 - **ループ数リセット**: 「ループ数をリセット」でLOOP 01に戻します。タイマー自体はリセットしません。値はWindowsレジストリに保存されます。
 - **数字の移動**: クリック透過のためドラッグできません。設定の「表示位置」から変更してください。
 
-## 開発フロー
-
-- featureブランチからmainへのPRでは **CI** がPython構文・単体テスト、WindowsオフスクリーンQtテスト（カード編集・フェーズ切替・保存/復元・ゲージ・影・最前面切替など）を実行します。EXE化は行いません。Issue別の回帰対象は [回帰テスト対応表](docs/issue-regression.md) にまとめています。
-- mainにマージすると、既存の **Build Windows EXE** がWindows上でテストとPyInstallerによるEXE生成を実行します。
-- Windows 11実機で右クリックメニューの配置、左クリック、設定の即時反映、ドラッグ操作、通知表示、EXEアイコンを確認してください。オフスクリーンテストでは実際のタスクバー位置は再現されません。全画面ゲームなど、環境によっては最前面表示されない場合があります。
-
 ## ライセンス
 
-FocusLoop自身のソースコードは **MIT License** です。詳細は [LICENSE](LICENSE) を参照してください。EXEに同梱されるQt/PySide6など第三者のライブラリはそれぞれ独自のライセンスに従います。[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) も参照してください。
+FocusLoop本体のソースコードは [MIT License](LICENSE) で公開しています。配布版に同梱するPySide6/Qtやその他のライブラリには、各ライブラリのライセンスが適用されます。詳細は [サードパーティーライセンス](THIRD_PARTY_NOTICES.md) を参照してください。
 
-## リリース手順（メンテナー向け）
-
-CI成功済みの変更をすべて `main` にマージし、Windows実機で表示・操作・通知を確認してから、バージョンタグを発行します。**タグをpushするとGitHub ActionsのRelease用ワークフローがWindows用EXEをビルドし、ReleaseのAssetsへ添付します。**
-
-```bash
-git switch main
-git pull --ff-only
-git tag -a v1.0.0 -m "FocusLoop v1.0.0"
-git push origin v1.0.0
-```
-
-バージョンを変更してリリースする場合は、`v1.0.1` のような新しいタグを使ってください。既に公開したタグは書き換えないでください。**このリポジトリにはまだv1.0.0タグを作成していません**（この説明だけでは公開されません）。
