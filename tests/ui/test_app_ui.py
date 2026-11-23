@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QApplication, QDialogButtonBox, QPushButton, QSlider, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QDialogButtonBox, QLabel, QPushButton, QSlider, QSystemTrayIcon
 
 from focusloop.app import FocusLoopApp, SettingsDialog
 from focusloop.icons import clock_icon, clock_image
@@ -50,8 +50,8 @@ class SettingsUITests(unittest.TestCase):
         self.assertEqual(self.updates, [False, False])
 
     def test_font_size_is_per_phase_and_supports_8_to_200pt(self):
-        first = self.dialog.table.cellWidget(0, 3)
-        second = self.dialog.table.cellWidget(1, 3)
+        first = self.dialog.table.cellWidget(0, 3).findChild(QSlider)
+        second = self.dialog.table.cellWidget(1, 3).findChild(QSlider)
         self.assertEqual((first.minimum(), first.maximum()), (8, 200))
         self.assertEqual((second.minimum(), second.maximum()), (8, 200))
         first.setValue(8)
@@ -62,12 +62,40 @@ class SettingsUITests(unittest.TestCase):
         self.assertEqual(self.dialog.table.rowCount(), 2)
         self.assertTrue(self.dialog.isVisible())
 
+    def test_size_column_uses_slider_with_visible_live_pt_value(self):
+        self.assertEqual(
+            self.dialog.table.horizontalHeaderItem(3).text(), "サイズ"
+        )
+        cell = self.dialog.table.cellWidget(0, 3)
+        slider = cell.findChild(QSlider)
+        label = cell.findChild(QLabel)
+        self.assertIsNotNone(slider)
+        self.assertIsNotNone(label)
+        self.assertEqual(slider.orientation(), Qt.Orientation.Horizontal)
+        self.assertEqual((slider.minimum(), slider.maximum()), (8, 200))
+        self.assertEqual(slider.singleStep(), 1)
+        self.assertEqual(label.text(), "42 pt")
+
+        slider.setValue(96)
+        self.assertEqual(label.text(), "96 pt")
+        self.assertEqual(self.dialog.result_phases[0].font_size, 96)
+        self.assertEqual(self.updates, [False])
+        self.assertTrue(self.dialog.isVisible())
+
+        slider.setValue(8)
+        self.assertEqual(label.text(), "8 pt")
+        self.assertEqual(self.dialog.result_phases[0].font_size, 8)
+        slider.setValue(200)
+        self.assertEqual(label.text(), "200 pt")
+        self.assertEqual(self.dialog.result_phases[0].font_size, 200)
+        self.assertEqual(self.dialog.table.rowCount(), 2)
+
     def test_color_opacity_font_and_position_change_immediately(self):
         color = self.dialog.table.cellWidget(0, 2)
         color.setCurrentIndex(color.findData("rose"))
         opacity = self.dialog.table.cellWidget(0, 4).findChild(QSlider)
         opacity.setValue(35)
-        self.dialog.table.cellWidget(0, 3).setValue(52)
+        self.dialog.table.cellWidget(0, 3).findChild(QSlider).setValue(52)
         self.dialog.position_combo.setCurrentIndex(
             self.dialog.position_combo.findData("top_right")
         )
@@ -89,8 +117,8 @@ class SettingsUITests(unittest.TestCase):
         self.assertTrue(self.updates[-1])
 
     def test_drag_row_header_reorders_phases_preserving_font(self):
-        self.dialog.table.cellWidget(0, 3).setValue(24)
-        self.dialog.table.cellWidget(1, 3).setValue(140)
+        self.dialog.table.cellWidget(0, 3).findChild(QSlider).setValue(24)
+        self.dialog.table.cellWidget(1, 3).findChild(QSlider).setValue(140)
         header = self.dialog.table.verticalHeader()
         self.assertTrue(header.sectionsMovable())
         self.assertTrue(header.isVisible())
@@ -128,7 +156,7 @@ class SettingsUITests(unittest.TestCase):
         self.assertEqual(self.dialog.result_phases[0].gradient_end, "amber")
 
     def test_close_keeps_changes(self):
-        self.dialog.table.cellWidget(0, 3).setValue(100)
+        self.dialog.table.cellWidget(0, 3).findChild(QSlider).setValue(100)
         buttons = self.dialog.findChild(QDialogButtonBox)
         buttons.button(QDialogButtonBox.StandardButton.Close).click()
         self.assertFalse(self.dialog.isVisible())
@@ -153,7 +181,7 @@ class AppIntegrationTests(unittest.TestCase):
                 controller.show_settings()
                 dialog = controller.settings_dialog
                 self.assertIsNotNone(dialog)
-                first = dialog.table.cellWidget(0, 3)
+                first = dialog.table.cellWidget(0, 3).findChild(QSlider)
                 first.setValue(200)
                 controller.update()
                 self.assertEqual(len(controller.timer_model.phases), original_phases)
@@ -241,8 +269,8 @@ class AppIntegrationTests(unittest.TestCase):
                 controller = FocusLoopApp(self.qt_app)
                 controller.show_settings()
                 dialog = controller.settings_dialog
-                dialog.table.cellWidget(0, 3).setValue(8)
-                dialog.table.cellWidget(1, 3).setValue(200)
+                dialog.table.cellWidget(0, 3).findChild(QSlider).setValue(8)
+                dialog.table.cellWidget(1, 3).findChild(QSlider).setValue(200)
                 self.assertEqual(controller.overlay.phase_config.font_size, 8)
                 controller.skip()
                 self.assertEqual(controller.overlay.phase_config.font_size, 200)
