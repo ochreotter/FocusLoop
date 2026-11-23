@@ -1,10 +1,13 @@
 """Dependency-free tests for scheduling and phase serialization."""
 
+import json
 import unittest
 
 from focusloop.timer import (
     FocusTimer,
     PhaseConfig,
+    MAX_FONT_SIZE,
+    MIN_FONT_SIZE,
     default_phases,
     phases_from_json,
     phases_to_json,
@@ -127,6 +130,43 @@ class TimerTests(unittest.TestCase):
         self.assertTrue(timer.tick(now=61))
         self.assertEqual(timer.current_phase.name, "集中")
         self.assertEqual(timer.remaining_seconds(now=61), 59)
+
+    def test_font_sizes_are_independent_and_not_timer_affecting(self):
+        timer = FocusTimer(now=0)
+        phases = (
+            PhaseConfig("作業", 45, "white", 100, 8),
+            PhaseConfig("休憩", 15, "mint", 80, 200),
+        )
+        timer.configure(phases, now=60)
+        self.assertEqual(timer.current_phase.font_size, 8)
+        self.assertEqual(timer.remaining_seconds(now=60), 2640)
+        timer.skip(now=80)
+        self.assertEqual(timer.current_phase.font_size, 200)
+        self.assertEqual(timer.remaining_seconds(now=80), 900)
+
+    def test_old_json_phases_migrate_legacy_font_size(self):
+        old = [
+            {"name": "作業", "minutes": 45, "color": "white", "opacity": 100},
+            {"name": "休憩", "minutes": 15, "color": "mint", "opacity": 90},
+        ]
+        migrated = phases_from_json(json.dumps(old), legacy_font_size=72)
+        self.assertEqual([x.font_size for x in migrated], [72, 72])
+        self.assertEqual([x.minutes for x in migrated], [45, 15])
+        saved = phases_from_json(phases_to_json(migrated))
+        self.assertEqual(saved, migrated)
+
+    def test_legacy_pair_migrates_font_size(self):
+        fallback = phases_from_json(None, legacy_work=40, legacy_break=10,
+                                    legacy_font_size=80)
+        self.assertEqual([x.font_size for x in fallback], [80, 80])
+
+    def test_font_size_bounds(self):
+        self.assertEqual((MIN_FONT_SIZE, MAX_FONT_SIZE), (8, 200))
+        for size in (7, 201, True, 2.5):
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                PhaseConfig("作業", 45, font_size=size)
+        for size in (8, 200):
+            self.assertEqual(PhaseConfig("作業", 45, font_size=size).font_size, size)
 
     def test_invalid_settings(self):
         for duration in (0, 241, -1, 1.5, True):
