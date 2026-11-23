@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image, ImageDraw, ImageFont
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QImage, QPainter, QRegion
+from PySide6.QtGui import QFont, QFontDatabase, QImage, QPainter, QRegion
 from PySide6.QtWidgets import QApplication, QWidget
 
 from focusloop.app import SettingsDialog
@@ -88,7 +88,7 @@ def desktop_frame(timer_image: Image.Image, stage: str, index: int) -> Image.Ima
     # Center the actual Qt overlay render; all digits, phase labels and circular
     # progress rings here come from FocusLoop's Overlay.paintEvent.
     x = (w - timer_image.width) // 2
-    y = (h - timer_image.height) // 2 + 10
+    y = (h - timer_image.height) // 2 + 12
     base.alpha_composite(timer_image, (x, y))
     return base.convert("RGB")
 
@@ -97,6 +97,17 @@ def render() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     app = QApplication.instance() or QApplication([])
     app.setStyle("Fusion")
+    # The headless Windows Qt platform does not reliably discover system fonts.
+    # Register the actual font files so screenshots contain readable glyphs.
+    font_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    for filename in ("segoeui.ttf", "seguisb.ttf", "consola.ttf", "consolab.ttf"):
+        path = font_dir / filename
+        if path.is_file():
+            font_id = QFontDatabase.addApplicationFont(str(path))
+            print(f"Qt font {filename}: {QFontDatabase.applicationFontFamilies(font_id)}")
+    app.setFont(QFont("Segoe UI", 10))
+    print(f"Qt has Segoe UI: {QFontDatabase.hasFamily('Segoe UI')}")
+    print(f"Qt has Consolas: {QFontDatabase.hasFamily('Consolas')}")
 
     english_phases = (
         PhaseConfig("Focus", 45, color="amber", opacity=75, font_size=50,
@@ -118,9 +129,9 @@ def render() -> None:
         dialog.close()
         app.processEvents()
 
-    focus = PhaseConfig("FOCUS", 45, color="amber", opacity=100, font_size=67,
+    focus = PhaseConfig("FOCUS", 45, color="amber", opacity=100, font_size=40,
                         gradient=True, gradient_end="rose", position="center")
-    rest = PhaseConfig("BREAK", 15, color="mint", opacity=100, font_size=67,
+    rest = PhaseConfig("BREAK", 15, color="mint", opacity=100, font_size=40,
                        gradient=False, position="center")
     overlay = Overlay(focus)
     overlay.show()
