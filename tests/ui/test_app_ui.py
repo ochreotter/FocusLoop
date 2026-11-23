@@ -253,52 +253,57 @@ class CardSettingsTests(unittest.TestCase):
         self.assertTrue(self.dialog.isVisible())
 
     def test_footer_groups_live_loop_resets_pause_and_settings_initialize(self):
-        """All persistent controls belong below the scrollable phase cards."""
+        """Order must match the tray, with only LOOP remaining footer-only."""
         root = self.dialog.layout()
         self.assertIs(root.itemAt(1).widget(), self.dialog.scroll)
         self.assertIs(root.itemAt(0).layout().itemAt(1).widget(),
                       self.dialog.language_combo)
         footer = root.itemAt(root.count() - 1).layout()
         self.assertIsNotNone(footer)
+        self.assertEqual(footer.spacing(), 6)
 
-        buttons = [
-            footer.itemAt(i).widget()
-            for i in range(footer.count())
-            if footer.itemAt(i).widget() is not None
-        ]
         self.assertEqual(
-            [w.text() if hasattr(w, "text") else "dialog_buttons" for w in buttons],
+            [footer.itemAt(i).widget().text() for i in range(5)],
             [
-                "LOOP 01",
-                "ループ数をリセット",
-                "現在のフェーズをリセット",
                 "一時停止",
-                "設定初期化",
-                "dialog_buttons",
+                "次のフェーズへ",
+                "現在のフェーズをリセット",
+                "ループ数をリセット",
+                "LOOP 01",
             ],
         )
-        self.assertIs(buttons[0], self.dialog.loop_label)
-        self.assertIs(buttons[3], self.dialog.pause_button)
-        self.assertIs(footer.itemAt(3).widget(), self.dialog.pause_button)
-        self.assertIsNotNone(footer.itemAt(4).spacerItem())
-        self.assertIs(footer.itemAt(5).widget(),
-                      self.dialog.findChild(QPushButton, "initialize_button"))
-        self.assertIs(buttons[4], self.dialog.findChild(QPushButton, "initialize_button"))
-        self.assertIsInstance(buttons[5], QDialogButtonBox)
+        self.assertIs(footer.itemAt(0).widget(), self.dialog.pause_button)
+        self.assertIs(footer.itemAt(1).widget(), self.dialog.skip_button)
+        self.assertIs(footer.itemAt(2).widget(), self.dialog.timer_reset_button)
+        self.assertIs(footer.itemAt(3).widget(), self.dialog.loop_reset_button)
+        self.assertIs(footer.itemAt(4).widget(), self.dialog.loop_label)
+        self.assertIsNotNone(footer.itemAt(5).spacerItem())
 
-        # Relocating controls must not change their wiring or live status.
+        # No spacer between settings reset and Close: both belong to one
+        # right-aligned group using the same 6px as the left-hand controls.
+        right = footer.itemAt(6).layout()
+        self.assertIsNotNone(right)
+        self.assertEqual(right.spacing(), footer.spacing())
+        self.assertEqual((right.contentsMargins().left(),
+                          right.contentsMargins().right()), (0, 0))
+        self.assertEqual(right.count(), 2)
+        self.assertIs(right.itemAt(0).widget(), self.dialog.initialize_button)
+        self.assertIsInstance(right.itemAt(1).widget(), QDialogButtonBox)
+        self.assertIs(right.itemAt(1).widget().button(
+            QDialogButtonBox.StandardButton.Close), self.dialog.close_button)
+
         calls = []
-        self.dialog.loop_reset.connect(lambda: calls.append("loop"))
-        self.dialog.timer_reset.connect(lambda: calls.append("timer"))
         self.dialog.pause_toggle.connect(lambda: calls.append("pause"))
-        buttons[1].click()
-        buttons[2].click()
-        buttons[3].click()
-        self.assertEqual(calls, ["loop", "timer", "pause"])
+        self.dialog.skip_requested.connect(lambda: calls.append("next"))
+        self.dialog.timer_reset.connect(lambda: calls.append("timer"))
+        self.dialog.loop_reset.connect(lambda: calls.append("loop"))
+        for index in range(4):
+            footer.itemAt(index).widget().click()
+        self.assertEqual(calls, ["pause", "next", "timer", "loop"])
         self.dialog.set_loop_number(12)
-        self.assertEqual(buttons[0].text(), "LOOP 12")
+        self.assertEqual(footer.itemAt(4).widget().text(), "LOOP 12")
         self.dialog.set_pause_state(True)
-        self.assertEqual(buttons[3].text(), "再開")
+        self.assertEqual(footer.itemAt(0).widget().text(), "再開")
 
     def test_only_close_button_in_dialog_button_box(self):
         buttons = self.dialog.findChild(QDialogButtonBox)
@@ -661,9 +666,57 @@ class AppRegressionTests(unittest.TestCase):
         self.assertFalse(dialog.cards[0].hidden.isChecked())
         self.assertEqual(dialog.cards[0].position.currentData(), "bottom_left")
 
+    def test_tray_footer_action_order_and_both_reset_entrypoints(self):
+        expected = [
+            "一時停止", "次のフェーズへ", "現在のフェーズをリセット",
+            "ループ数をリセット",
+        ]
+        tray_actions = self.controller.menu.actions()
+        actual = [
+            action.text() for action in tray_actions
+            if action in (
+                self.controller.pause_action,
+                self.controller.skip_action,
+                self.controller.reset_action,
+                self.controller.loop_reset_action,
+            )
+        ]
+        self.assertEqual(actual, expected)
+        self.assertEqual([a.text() for a in tray_actions
+                          if a.text().startswith("LOOP")], [])
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        footer = dialog.layout().itemAt(dialog.layout().count() - 1).layout()
+        self.assertEqual([footer.itemAt(i).widget().text() for i in range(4)],
+                         expected)
+
+        # Footer's next action must call the same skip operation as the tray.
+        self.controller.timer_model.pause()
+        self.controller.update()
+        dialog.skip_button.click()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
+        self.assertTrue(self.controller.timer_model.paused)
+        self.controller.skip_action.trigger()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "作業中")
+        self.assertTrue(self.controller.timer_model.paused)
+
+        # Both loop reset paths preserve the actual countdown and phase.
+        for reset in (self.controller.loop_reset_action.trigger,
+                      dialog.loop_reset_button.click):
+            self.controller.timer_model.loop_number = 12
+            self.controller.update()
+            before = self.controller.timer_model.remaining_seconds()
+            current = self.controller.timer_model.current_phase
+            reset()
+            self.assertEqual(self.controller.timer_model.loop_number, 1)
+            self.assertEqual(self.controller.timer_model.remaining_seconds(), before)
+            self.assertEqual(self.controller.timer_model.current_phase, current)
+            self.assertEqual(dialog.loop_label.text(), "LOOP 01")
+
     def test_tray_actions_notifications_and_icons(self):
         labels = [x.text() for x in self.controller.menu.actions()]
-        for value in ("一時停止", "次のフェーズへ", "現在のフェーズをリセット", "設定", "終了"):
+        for value in ("一時停止", "次のフェーズへ", "現在のフェーズをリセット",
+                      "ループ数をリセット", "設定", "終了"):
             self.assertIn(value, labels)
         with patch.object(self.controller, "show_settings") as show:
             self.controller._tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
