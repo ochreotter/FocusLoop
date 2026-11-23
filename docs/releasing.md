@@ -4,7 +4,7 @@
 
 ## タグとドラフトRelease
 
-アプリ側の `focusloop/updates.py` にある `VERSION` を次の公開バージョン（例：`1.0.1`）に更新し、対応するWindows UI・単体テストを通してください。Releaseのタグ名と`VERSION`が一致しない場合、GitHub Actionsはビルド前に失敗します。既存の`1.0.0`タグは上書きしません。
+アプリ側の `focusloop/updates.py` にある `VERSION` を次の公開バージョン（例：`1.0.2`）に更新し、対応するWindows UI・単体テストを通してください。Releaseのタグ名と`VERSION`が一致しない場合、GitHub Actionsはビルド前に失敗します。既存の`1.0.0`タグは上書きしません。
 
 
 `main`のCIと実機確認が終わったら、対象コミットへ`1.0.0`形式（`v`なし）のタグを付けます。
