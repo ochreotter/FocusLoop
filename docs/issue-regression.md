@@ -47,6 +47,8 @@
 | #59 | 最上部の日本語/英語切替とQSettings保存、フェーズ名の表示専用翻訳、トレイ/通知/確認画面の多言語化、切替によるタイマー無変更 | `tests/test_i18n.py`, `tests/ui/test_i18n_ui.py` |
 | #61 | 設定フッターとトレイの4操作を同じ順番に統一（Pause→Next→Phase reset→Loop reset）、フッター専用LOOP表示、設定初期化と閉じるを6pxで右端に集約 | `tests/ui/test_app_ui.py`, `tests/ui/test_i18n_ui.py` |
 | #63 | 設定画面最上段の言語コンボすぐ右隣に共通「通知する」チェックを配置。自動/手動通知の停止、QSettings保存/復元、初期化でON、日英切替 | `tests/ui/test_notifications_ui.py` |
+| #65 | 前のフェーズへを設定フッターとトレイ右クリックへ追加。逆方向のループ数更新、一時停止維持、日英翻訳 | `tests/test_timer.py`, `tests/ui/test_app_ui.py`, `tests/ui/test_i18n_ui.py` |
+| #66 | 休憩中のグラデーション初期値はOFF。サブ色ホワイトは維持し、既存の保存設定は変更しない | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
 
 ## リファクタリング判断
 
