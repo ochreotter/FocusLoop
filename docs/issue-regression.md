@@ -46,6 +46,7 @@
 | #57 | 参照画像どおりの作業中/休憩中の初期値（50/300pt、30/20%、アンバー→ローズ・ミント→白、左下/中央）とフッター左右グループ | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py` |
 | #59 | 最上部の日本語/英語切替とQSettings保存、フェーズ名の表示専用翻訳、トレイ/通知/確認画面の多言語化、切替によるタイマー無変更 | `tests/test_i18n.py`, `tests/ui/test_i18n_ui.py` |
 | #61 | 設定フッターとトレイの4操作を同じ順番に統一（Pause→Next→Phase reset→Loop reset）、フッター専用LOOP表示、設定初期化と閉じるを6pxで右端に集約 | `tests/ui/test_app_ui.py`, `tests/ui/test_i18n_ui.py` |
+| #63 | 設定画面最上段の言語コンボすぐ右隣に共通「通知する」チェックを配置。自動/手動通知の停止、QSettings保存/復元、初期化でON、日英切替 | `tests/ui/test_notifications_ui.py` |
 
 ## リファクタリング判断
 
