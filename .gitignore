@@ -5,6 +5,7 @@ venv/
 .pytest_cache/
 *.spec
 build/
+.build/
 dist/
 *.exe
 .idea/

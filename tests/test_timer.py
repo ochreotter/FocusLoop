@@ -84,6 +84,15 @@ class TimerTests(unittest.TestCase):
         timer.restart(now=1002.0)
         self.assertEqual(timer.remaining_ratio(now=1002.0), 1.0)
 
+    def test_remaining_display_does_not_exceed_phase_duration(self):
+        timer = FocusTimer(now=100.0)
+        self.assertEqual(timer.remaining_seconds(now=99.9999), 2700)
+        timer.skip(now=500.0)
+        self.assertEqual(timer.current_phase.name, "休憩中")
+        self.assertEqual(timer.remaining_seconds(now=499.9999), 900)
+        timer.pause(now=499.9999)
+        self.assertEqual(timer.remaining_seconds(now=2000.0), 900)
+
     def test_pause_resume_preserves_remaining(self):
         timer = FocusTimer(now=0.0)
         timer.pause(now=30.5)

@@ -60,13 +60,17 @@ class LocalizedAppTests(unittest.TestCase):
         self.assertEqual(self.controller.settings.value("language"), "en")
         self.assertEqual(dialog.language_label.text(), "Language")
         self.assertIn("Settings", dialog.windowTitle())
-        self.assertEqual(dialog.cards[0].name.text(), "Working")
-        self.assertEqual(dialog.cards[1].name.text(), "On Break")
+        self.assertIn(
+            "Opacity",
+            [label.text() for label in dialog.cards[0].findChildren(QLabel)],
+        )
+        self.assertEqual(dialog.cards[0].name.text(), "作業中")
+        self.assertEqual(dialog.cards[1].name.text(), "休憩中")
         self.assertTrue(all(c.expand_button.isChecked() for c in dialog.cards))
         self.assertEqual(self.controller.timer_model.phases, phases)
         self.assertEqual(self.controller.timer_model.loop_number, 5)
         self.assertLessEqual(abs(before - self.controller.timer_model.remaining_seconds()), 1)
-        self.assertEqual(self.controller.overlay.phase_config.name, "Working")
+        self.assertEqual(self.controller.overlay.phase_config.name, "作業中")
         self.assertIn("Amber", dialog.cards[0].summary.text())
         self.assertIn("Bottom left", dialog.cards[0].summary.text())
         self.assertIn("Topmost ON", dialog.cards[0].summary.text())
@@ -117,14 +121,14 @@ class LocalizedAppTests(unittest.TestCase):
 
         dialog.skip_button.click()
         self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
-        self.assertEqual(self.controller.overlay.phase_config.name, "On Break")
+        self.assertEqual(self.controller.overlay.phase_config.name, "休憩中")
 
         dialog.previous_button.click()
         self.assertEqual(self.controller.timer_model.current_phase.name, "作業中")
-        self.assertEqual(self.controller.overlay.phase_config.name, "Working")
+        self.assertEqual(self.controller.overlay.phase_config.name, "作業中")
         self.controller.previous_action.trigger()
         self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
-        self.assertEqual(self.controller.overlay.phase_config.name, "On Break")
+        self.assertEqual(self.controller.overlay.phase_config.name, "休憩中")
 
         self.controller.timer_model.pause()
         self.controller.timer_model.loop_number = 7
@@ -155,14 +159,44 @@ class LocalizedAppTests(unittest.TestCase):
 
         dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("en"))
         self.assertEqual(dialog.cards[0].name.text(), "深い集中")
-        self.assertEqual(dialog.cards[1].name.text(), "On Break")
+        self.assertEqual(dialog.cards[1].name.text(), "休憩中")
         self.assertEqual(self.controller.overlay.phase_config.name, "深い集中")
         self.assertLessEqual(abs(before - self.controller.timer_model.remaining_seconds()), 1)
         dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("ja"))
+        self.assertIn(
+            "不透明度",
+            [label.text() for label in dialog.cards[0].findChildren(QLabel)],
+        )
         self.assertEqual(dialog.cards[0].name.text(), "深い集中")
         self.assertEqual(dialog.cards[1].name.text(), "休憩中")
         self.assertEqual(self.controller.settings.value("language"), "ja")
         self.assertEqual(dialog.pause_button.text(), "一時停止")
+
+    def test_all_phase_names_remain_verbatim_including_english_looking_names(self):
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        dialog.cards[0].name.setText("Working")
+        dialog.cards[1].name.setText("設定")
+        phases = self.controller.timer_model.phases
+        dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("en"))
+        self.assertEqual([card.name.text() for card in dialog.cards], ["Working", "設定"])
+        self.assertEqual(self.controller.overlay.phase_config.name, "Working")
+        self.assertEqual(self.controller.timer_model.phases, phases)
+        dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("ja"))
+        self.assertEqual([card.name.text() for card in dialog.cards], ["Working", "設定"])
+        self.assertEqual(self.controller.timer_model.phases, phases)
+
+        dialog.cards[0].name.setText("作業中")
+        dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("en"))
+        self.assertEqual(dialog.cards[0].name.text(), "作業中")
+        self.assertEqual(self.controller.overlay.phase_config.name, "作業中")
+        self.assertEqual(self.controller.timer_model.phases[0].name, "作業中")
+        self.controller.settings.sync()
+        restarted = FocusLoopApp(self.app)
+        restarted.show_settings()
+        self.assertEqual(restarted.settings_dialog.cards[0].name.text(), "作業中")
+        self.assertEqual(restarted.settings_dialog.cards[1].name.text(), "設定")
+        restarted.close()
 
     def test_language_survives_relaunch_and_settings_reset(self):
         self.controller.show_settings()
@@ -182,8 +216,8 @@ class LocalizedAppTests(unittest.TestCase):
         self.assertEqual(self.controller.language, "en")
         self.assertEqual(self.controller.timer_model.phases, default_phases())
         self.assertEqual(self.controller.settings.value("language"), "en")
-        self.assertEqual(dialog.cards[0].name.text(), "Working")
-        self.assertEqual(dialog.cards[1].name.text(), "On Break")
+        self.assertEqual(dialog.cards[0].name.text(), "作業中")
+        self.assertEqual(dialog.cards[1].name.text(), "休憩中")
         self.assertEqual(dialog.language_combo.currentData(), "en")
         self.assertEqual(dialog.findChild(QPushButton, "initialize_button").text(),
                          "Reset settings")
@@ -204,15 +238,15 @@ class LocalizedAppTests(unittest.TestCase):
         self.assertEqual(len(seen), 2)
         self.assertIn("Reset settings", seen[0][1])
         self.assertEqual(seen[0][2], "Reset all settings?")
-        self.assertIn("Working 45:00", seen[0][3])
+        self.assertIn("first phase (45:00)", seen[0][3])
         self.assertEqual(seen[0][-1], "en")
-        self.assertIn('Delete "Working"?', seen[1][2])
+        self.assertIn('Delete "作業中"?', seen[1][2])
         self.assertEqual(seen[1][-1], "en")
         self.assertEqual(len(dialog.cards), 2)
 
         self.controller.tray = Mock()
         self.controller._notify_phase_change()
-        self.assertIn('Started "Working" (45 min).',
+        self.assertIn('Started "作業中" (45 min).',
                       self.controller.tray.showMessage.call_args.args[1])
 
 

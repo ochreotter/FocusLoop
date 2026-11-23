@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict
 
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QSize, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QDrag, QGuiApplication, QIcon, QPainter, QPixmap
@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from .geometry import tray_menu_position
-from .i18n import LANGUAGES, phase_name, translate as tr
+from .i18n import LANGUAGES, translate as tr
 from .icons import clock_icon
 from .overlay import Overlay
 from .timer import (
@@ -234,8 +234,7 @@ class PhaseCard(QFrame):
             fields.addWidget(area, row, col)
 
 
-        self._source_name = str(values["name"])
-        self.name = QLineEdit(phase_name(self._source_name, owner.language), self.body)
+        self.name = QLineEdit(str(values["name"]), self.body)
         self.name.setMaxLength(40)
         self.name.setPlaceholderText(tr("フェーズ名", owner.language))
         field(0, 0, "フェーズ名", self.name)
@@ -285,7 +284,7 @@ class PhaseCard(QFrame):
         opacity_layout.setContentsMargins(0, 0, 0, 0)
         opacity_layout.addWidget(self.opacity, 1)
         opacity_layout.addWidget(self.opacity_label)
-        field(2, 1, "透過率", opacity_row)
+        field(2, 1, "不透明度", opacity_row)
 
         self.simple = QCheckBox("Simple", self.body)
         self.simple.setChecked(bool(values["simple"]))
@@ -360,10 +359,7 @@ class PhaseCard(QFrame):
 
     def snapshot(self) -> dict:
         return {
-            "name": (
-                self._source_name if self.name.text() == phase_name(self._source_name, self.owner.language)
-                else self.name.text()
-            ),
+            "name": self.name.text(),
             "minutes": self.minutes.value(),
             "color": self.color.currentData(),
             "gradient": self.gradient.isChecked(),
@@ -744,10 +740,7 @@ class FocusLoopApp:
 
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
         self._last_loop_saved = loop_number
-        self.overlay = Overlay(replace(
-            self.timer_model.current_phase,
-            name=phase_name(self.timer_model.current_phase.name, self.language),
-        ))
+        self.overlay = Overlay(self.timer_model.current_phase)
         self._overlay_started = False
         self.tray = QSystemTrayIcon(clock_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
@@ -804,9 +797,8 @@ class FocusLoopApp:
         remaining = self.timer_model.remaining_seconds()
         display = f"{remaining // 60:02d}:{remaining % 60:02d}"
         phase = self.timer_model.current_phase
-        visual_phase = replace(phase, name=phase_name(phase.name, self.language))
         self.overlay.set_clock(
-            display, visual_phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
+            display, phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
         )
         # Hidden is a phase display setting, not a timer pause: the model and
         # tray keep updating. Do not show a window before start() is called.
@@ -819,7 +811,7 @@ class FocusLoopApp:
             self._save_loop_number()
         state = (display, phase, self.timer_model.paused, self.language)
         if state != self.last_display:
-            title = visual_phase.name
+            title = phase.name
             if self.timer_model.paused:
                 title += f" ({tr('一時停止', self.language)})"
             self.status_action.setText(f"{title}  {display}")
@@ -895,7 +887,7 @@ class FocusLoopApp:
         if not self.notifications_enabled:
             return
         phase = self.timer_model.current_phase
-        name = phase_name(phase.name, self.language)
+        name = phase.name
         message = (
             f'Started "{name}" ({phase.minutes} min).'
             if self.language == "en"

@@ -194,9 +194,12 @@ class FocusTimer:
         return True
 
     def remaining_seconds(self, *, now: float | None = None) -> int:
-        if self.paused:
-            return max(0, math.ceil(self._remaining))
-        return max(0, math.ceil(self._deadline - self._clock(now)))
+        remaining = (
+            self._remaining if self.paused else self._deadline - self._clock(now)
+        )
+        # Never show 15:01 at the beginning of a 15-minute phase because of
+        # tiny monotonic clock or floating-point rounding differences.
+        return max(0, min(self.current_phase.minutes * 60, math.ceil(remaining)))
 
     def remaining_ratio(self, *, now: float | None = None) -> float:
         """Precise monotonic progress for the ring; unaffected by Qt timer drift."""

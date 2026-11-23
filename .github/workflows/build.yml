@@ -23,11 +23,13 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Generate Windows Clock icon
         run: python -m scripts.generate_icon
-      - name: Build application
-        run: pyinstaller --noconfirm --clean --onefile --windowed --icon .build/FocusLoop.ico --name FocusLoop main.py
-      - name: Upload EXE artifact
+      - name: Build application with replaceable DLLs
+        run: pyinstaller --noconfirm --clean --onedir --windowed --icon .build/FocusLoop.ico --name FocusLoop main.py
+      - name: Package application with license texts and notices
+        run: python -m scripts.package_windows
+      - name: Upload Windows ZIP artifact
         uses: actions/upload-artifact@v7
         with:
           name: FocusLoop-Windows
-          path: dist/FocusLoop.exe
+          path: dist/FocusLoop-Windows.zip
           if-no-files-found: error
