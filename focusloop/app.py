@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon
+from PySide6.QtCore import QPoint, QSize, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -47,6 +47,7 @@ POSITIONS = (
     ("右下", "bottom_right"),
     ("左上", "top_left"),
     ("右上", "top_right"),
+    ("中央", "center"),
 )
 
 
@@ -58,16 +59,30 @@ def _int_setting(settings: QSettings, key: str, default: int, minimum: int, maxi
     return min(max(value, minimum), maximum)
 
 
+def color_swatch_icon(hex_value: str) -> QIcon:
+    """Keep both white and black color samples visible next to their names."""
+    image = QPixmap(18, 18)
+    image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(QColor("#7D8592"))
+    painter.setBrush(QColor(hex_value))
+    painter.drawRoundedRect(1, 1, 16, 16, 3, 3)
+    painter.end()
+    return QIcon(image)
+
+
 class SettingsDialog(QDialog):
     """Edit all phases, including order, text color and per-phase opacity."""
 
     changed = Signal(object, bool)
     loop_reset = Signal()
+    timer_reset = Signal()
 
     def __init__(self, parent, timer: FocusTimer, position: str, style: str) -> None:
         super().__init__(parent)
         self.setWindowTitle("FocusLoop - 設定")
-        self.setMinimumWidth(1040)
+        self.setMinimumWidth(1120)
         self.setMinimumHeight(450)
         self.result_phases: tuple[PhaseConfig, ...] | None = None
         self._last_emitted_appearance = (position, style)
@@ -96,8 +111,12 @@ class SettingsDialog(QDialog):
         form.addRow("表示スタイル", self.style_combo)
         form.addRow("ループ数", loop_row)
 
-        self.table = QTableWidget(0, 8, self)
-        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "サイズ", "透過率", "グラデーション", "終了色", "削除"))
+        reset_timer_button = QPushButton("現在のフェーズをリセット", self)
+        reset_timer_button.clicked.connect(self._reset_timer)
+        form.addRow("タイマー", reset_timer_button)
+
+        self.table = QTableWidget(0, 7, self)
+        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "メイン色", "サブ色・グラデーション", "サイズ", "透過率", "削除"))
         handle = self.table.verticalHeader()
         handle.show()
         handle.setFixedWidth(44)
@@ -110,9 +129,8 @@ class SettingsDialog(QDialog):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         self._render_rows([
             {
                 "name": phase.name,
@@ -135,7 +153,7 @@ class SettingsDialog(QDialog):
             "設定は変更と同時に反映・保存されます。"
             "左端の「⠿」をドラッグして順番を変更できます。"
             "フェーズの順番・分数を変更すると、先頭から再スタートします。"
-            "名前・色・透過率・表示スタイル・グラデーション・位置・文字サイズの変更では時間をリセットしません。"
+            "名前・色・透過率・表示スタイル・グラデーション・位置・サイズの変更では時間をリセットしません。"
             "「閉じる」を押しても設定は保持されます。",
             self,
         )
@@ -182,11 +200,28 @@ class SettingsDialog(QDialog):
         self.table.setCellWidget(row, 1, minutes)
 
         color = QComboBox(self.table)
+        color.setIconSize(QSize(18, 18))
         for key, label, hex_value in COLOR_PRESETS:
-            color.addItem(label, key)
-            color.setItemData(color.count() - 1, QColor(hex_value), Qt.ItemDataRole.DecorationRole)
+            color.addItem(color_swatch_icon(hex_value), label, key)
         color.setCurrentIndex(max(0, color.findData(phase["color"])))
         self.table.setCellWidget(row, 2, color)
+
+        sub_cell = QWidget(self.table)
+        sub_layout = QHBoxLayout(sub_cell)
+        sub_layout.setContentsMargins(4, 0, 4, 0)
+        gradient = QCheckBox("ON", sub_cell)
+        gradient.setToolTip("グラデーション")
+        gradient.setChecked(bool(phase["gradient"]))
+        gradient_end = QComboBox(sub_cell)
+        gradient_end.setIconSize(QSize(18, 18))
+        for key, label, hex_value in COLOR_PRESETS:
+            gradient_end.addItem(color_swatch_icon(hex_value), label, key)
+        gradient_end.setCurrentIndex(max(0, gradient_end.findData(phase["gradient_end"])))
+        gradient_end.setEnabled(gradient.isChecked())
+        gradient.toggled.connect(gradient_end.setEnabled)
+        sub_layout.addWidget(gradient)
+        sub_layout.addWidget(gradient_end, 1)
+        self.table.setCellWidget(row, 3, sub_cell)
 
         size_cell = QWidget(self.table)
         size_layout = QHBoxLayout(size_cell)
@@ -203,7 +238,7 @@ class SettingsDialog(QDialog):
         )
         size_layout.addWidget(font_size)
         size_layout.addWidget(font_size_label)
-        self.table.setCellWidget(row, 3, size_cell)
+        self.table.setCellWidget(row, 4, size_cell)
 
         opacity_cell = QWidget(self.table)
         opacity_layout = QHBoxLayout(opacity_cell)
@@ -217,28 +252,19 @@ class SettingsDialog(QDialog):
         opacity.valueChanged.connect(lambda value, label=opacity_label: label.setText(f"{value}%"))
         opacity_layout.addWidget(opacity)
         opacity_layout.addWidget(opacity_label)
-        self.table.setCellWidget(row, 4, opacity_cell)
-
-        gradient = QCheckBox("ON", self.table)
-        gradient.setChecked(bool(phase["gradient"]))
-        self.table.setCellWidget(row, 5, gradient)
-
-        gradient_end = QComboBox(self.table)
-        for key, label, hex_value in COLOR_PRESETS:
-            gradient_end.addItem(label, key)
-            gradient_end.setItemData(
-                gradient_end.count() - 1, QColor(hex_value),
-                Qt.ItemDataRole.DecorationRole,
-            )
-        gradient_end.setCurrentIndex(max(0, gradient_end.findData(phase["gradient_end"])))
-        gradient_end.setEnabled(gradient.isChecked())
-        self.table.setCellWidget(row, 6, gradient_end)
-        gradient.toggled.connect(gradient_end.setEnabled)
+        self.table.setCellWidget(row, 5, opacity_cell)
 
         delete = QPushButton("削除", self.table)
         delete.setToolTip("削除（最低1フェーズは必要）")
+        delete.setStyleSheet(
+            "QPushButton { background-color: #C62828; color: #FFFFFF; "
+            "border: 1px solid #B71C1C; border-radius: 5px; padding: 5px 10px; "
+            "font-weight: 600; } "
+            "QPushButton:hover { background-color: #D32F2F; } "
+            "QPushButton:pressed { background-color: #8E0000; }"
+        )
         delete.clicked.connect(lambda checked=False, editor=name: self._delete_row(editor))
-        self.table.setCellWidget(row, 7, delete)
+        self.table.setCellWidget(row, 6, delete)
 
         name.textChanged.connect(lambda _text: self._notify_change())
         minutes.valueChanged.connect(lambda _value: self._notify_change())
@@ -248,6 +274,9 @@ class SettingsDialog(QDialog):
         opacity.valueChanged.connect(
             lambda value, label=opacity_label: self._opacity_changed(label, value)
         )
+
+    def _reset_timer(self) -> None:
+        self.timer_reset.emit()
 
     def _reset_loop(self) -> None:
         self.loop_reset.emit()
@@ -300,15 +329,15 @@ class SettingsDialog(QDialog):
         header = self.table.verticalHeader()
         for visual in range(self.table.rowCount()):
             index = header.logicalIndex(visual)
-            opacity_cell = self.table.cellWidget(index, 4)
+            opacity_cell = self.table.cellWidget(index, 5)
             rows.append({
                 "name": self.table.cellWidget(index, 0).text(),
                 "minutes": self.table.cellWidget(index, 1).value(),
                 "color": self.table.cellWidget(index, 2).currentData(),
-                "font_size": self.table.cellWidget(index, 3).findChild(QSlider).value(),
+                "font_size": self.table.cellWidget(index, 4).findChild(QSlider).value(),
                 "opacity": opacity_cell.findChild(QSlider).value(),
-                "gradient": self.table.cellWidget(index, 5).isChecked(),
-                "gradient_end": self.table.cellWidget(index, 6).currentData(),
+                "gradient": self.table.cellWidget(index, 3).findChild(QCheckBox).isChecked(),
+                "gradient_end": self.table.cellWidget(index, 3).findChild(QComboBox).currentData(),
             })
         return rows
 
@@ -512,6 +541,7 @@ class FocusLoopApp:
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
+        dialog.timer_reset.connect(self.reset)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
         dialog.show()
