@@ -157,6 +157,9 @@ class UpdatePreparationTests(unittest.TestCase):
             self.assertEqual(args[0].lower(), "powershell.exe")
             self.assertIn("-StagedDir", args)
             self.assertIn("-ParentPid", args)
+            self.assertEqual(
+                launch.call_args.kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"], "1"
+            )
             updates.discard_prepared_update(prepared)
             self.assertFalse(prepared.staged_dir.exists())
 
