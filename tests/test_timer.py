@@ -164,10 +164,10 @@ class TimerTests(unittest.TestCase):
 
     def test_font_size_bounds(self):
         self.assertEqual((MIN_FONT_SIZE, MAX_FONT_SIZE), (8, 200))
-        for size in (7, 201, True, 2.5):
+        for size in (7, 301, True, 2.5):
             with self.subTest(size=size), self.assertRaises(ValueError):
                 PhaseConfig("作業", 45, font_size=size)
-        for size in (8, 200):
+        for size in (8, 200, 300):
             self.assertEqual(PhaseConfig("作業", 45, font_size=size).font_size, size)
 
     def test_loop_count_increments_on_wrap_and_skipping(self):
