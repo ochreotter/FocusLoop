@@ -134,6 +134,7 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(760)
         self.setMinimumHeight(450)
         self.result_phases: tuple[PhaseConfig, ...] | None = None
+        self._last_emitted_appearance = (font_size, position)
 
         self.font_spin = QSpinBox(self)
         self.font_spin.setRange(18, 96)
@@ -283,8 +284,14 @@ class SettingsDialog(QDialog):
             # the input is valid, without interrupting the user with a dialog.
             return
 
-        if force_restart or phases != self.result_phases:
+        appearance = (self.font_spin.value(), self.position_combo.currentData())
+        if (
+            force_restart
+            or phases != self.result_phases
+            or appearance != self._last_emitted_appearance
+        ):
             self.result_phases = phases
+            self._last_emitted_appearance = appearance
             self.changed.emit(self, force_restart)
 
     def _snapshot(self) -> list[dict]:
