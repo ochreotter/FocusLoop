@@ -130,12 +130,12 @@ class CardSettingsTests(unittest.TestCase):
         self.assertTrue(self.dialog.cards[-1].topmost.isChecked())
         self.assertTrue(self.dialog.cards[-1].expand_button.isChecked())
         self.dialog._reorder_cards(first, self.dialog.cards[-1])
-        self.assertEqual(self.dialog._current_names(), ["休憩", "新しいフェーズ", "作業"])
+        self.assertEqual([c.name.text() for c in self.dialog.cards], ["休憩", "新しいフェーズ", "作業"])
         self.assertEqual(self.dialog.result_phases[-1].position, "top_right")
         self.assertFalse(self.dialog.result_phases[-1].topmost)
         self.assertTrue(self.events[-1])
         self.dialog.cards[-1].move_up.click()
-        self.assertEqual(self.dialog._current_names(), ["休憩", "作業", "新しいフェーズ"])
+        self.assertEqual([c.name.text() for c in self.dialog.cards], ["休憩", "作業", "新しいフェーズ"])
 
     def test_delete_confirmation_and_minimum_one_phase(self):
         first = self.dialog.cards[0]
