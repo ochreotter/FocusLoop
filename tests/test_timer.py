@@ -222,7 +222,7 @@ class TimerTests(unittest.TestCase):
         self.assertEqual([x.font_size for x in fallback], [80, 80])
 
     def test_font_size_bounds(self):
-        self.assertEqual((MIN_FONT_SIZE, MAX_FONT_SIZE), (8, 200))
+        self.assertEqual((MIN_FONT_SIZE, MAX_FONT_SIZE), (8, 300))
         for size in (7, 301, True, 2.5):
             with self.subTest(size=size), self.assertRaises(ValueError):
                 PhaseConfig("作業", 45, font_size=size)
