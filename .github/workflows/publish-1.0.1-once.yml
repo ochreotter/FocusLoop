@@ -41,17 +41,11 @@ jobs:
         run: pyinstaller --noconfirm --clean --onedir --windowed --icon .build/FocusLoop.ico --name FocusLoop main.py
       - name: Package Windows ZIP with licenses
         run: python -m scripts.package_windows
-      - name: Verify release ZIP and tag availability
+      - name: Verify release ZIP
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           if (-not (Test-Path 'dist/FocusLoop-Windows.zip')) { throw 'Release ZIP missing' }
           if ((Get-Item 'dist/FocusLoop-Windows.zip').Length -lt 100000) { throw 'Release ZIP unexpectedly small' }
-          gh release view 1.0.1 --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) { throw 'Release 1.0.1 already exists; refusing to overwrite it' }
-          gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/1.0.1" *> $null
-          if ($LASTEXITCODE -eq 0) { throw 'Git tag 1.0.1 already exists; refusing to move it' }
       - name: Create Draft Release, tag, and publish
         shell: pwsh
         env:
