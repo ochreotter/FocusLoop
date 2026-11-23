@@ -78,18 +78,20 @@ class LocalizedAppTests(unittest.TestCase):
         self.assertEqual(dialog.cards[1].position.itemText(
             dialog.cards[1].position.findData("center")), "Center")
         self.assertIn("Pause", [a.text() for a in self.controller.menu.actions()])
+        self.assertIn("Previous phase", [a.text() for a in self.controller.menu.actions()])
         self.assertIn("Next phase", [a.text() for a in self.controller.menu.actions()])
         self.assertIn("Reset loop count", [a.text() for a in self.controller.menu.actions()])
         self.assertEqual(
             [action.text() for action in self.controller.menu.actions()
-             if action in (self.controller.pause_action, self.controller.skip_action,
+             if action in (self.controller.pause_action, self.controller.previous_action,
+                           self.controller.skip_action,
                            self.controller.reset_action, self.controller.loop_reset_action)],
-            ["Pause", "Next phase", "Reset current phase", "Reset loop count"],
+            ["Pause", "Previous phase", "Next phase", "Reset current phase", "Reset loop count"],
         )
         self.assertEqual(
             [dialog.layout().itemAt(dialog.layout().count() - 1).layout()
-             .itemAt(i).widget().text() for i in range(4)],
-            ["Pause", "Next phase", "Reset current phase", "Reset loop count"],
+             .itemAt(i).widget().text() for i in range(5)],
+            ["Pause", "Previous phase", "Next phase", "Reset current phase", "Reset loop count"],
         )
         self.assertIn("Settings", [a.text() for a in self.controller.menu.actions()])
         self.assertIn("Quit", [a.text() for a in self.controller.menu.actions()])
@@ -108,11 +110,19 @@ class LocalizedAppTests(unittest.TestCase):
         self.controller.show_settings()
         dialog = self.controller.settings_dialog
         dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("en"))
+        self.assertEqual(dialog.previous_button.text(), "Previous phase")
         self.assertEqual(dialog.skip_button.text(), "Next phase")
         self.assertEqual(dialog.loop_reset_button.text(), "Reset loop count")
         self.assertEqual(dialog.pause_button.text(), "Pause")
 
         dialog.skip_button.click()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
+        self.assertEqual(self.controller.overlay.phase_config.name, "On Break")
+
+        dialog.previous_button.click()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "作業中")
+        self.assertEqual(self.controller.overlay.phase_config.name, "Working")
+        self.controller.previous_action.trigger()
         self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
         self.assertEqual(self.controller.overlay.phase_config.name, "On Break")
 
@@ -128,8 +138,10 @@ class LocalizedAppTests(unittest.TestCase):
         self.assertEqual(dialog.pause_button.text(), "Resume")
 
         dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("ja"))
+        self.assertEqual(dialog.previous_button.text(), "前のフェーズへ")
         self.assertEqual(dialog.skip_button.text(), "次のフェーズへ")
         self.assertEqual(dialog.loop_reset_button.text(), "ループ数をリセット")
+        self.assertEqual(self.controller.previous_action.text(), "前のフェーズへ")
         self.assertEqual(self.controller.loop_reset_action.text(), "ループ数をリセット")
         self.assertEqual(self.controller.menu.actions()[0], self.controller.status_action)
 

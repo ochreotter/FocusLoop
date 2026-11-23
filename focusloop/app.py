@@ -438,11 +438,16 @@ class SettingsDialog(QDialog):
     loop_reset = Signal()
     timer_reset = Signal()
     skip_requested = Signal()
+    previous_requested = Signal()
     pause_toggle = Signal()
     initialize_requested = Signal()
     language_changed = Signal(str)
+    notifications_changed = Signal(bool)
 
-    def __init__(self, parent, timer: FocusTimer, language: str = "ja") -> None:
+    def __init__(
+        self, parent, timer: FocusTimer, language: str = "ja",
+        notifications_enabled: bool = True,
+    ) -> None:
         super().__init__(parent)
         self.language = language if language in LANGUAGES else "ja"
         self.setWindowTitle(f"FocusLoop - {tr('設定', self.language)}")
@@ -461,6 +466,11 @@ class SettingsDialog(QDialog):
         language_row = QHBoxLayout()
         language_row.addWidget(self.language_label)
         language_row.addWidget(self.language_combo)
+        self.notifications_checkbox = QCheckBox(tr("通知する", self.language), self)
+        self.notifications_checkbox.setObjectName("notifications_checkbox")
+        self.notifications_checkbox.setChecked(notifications_enabled)
+        self.notifications_checkbox.toggled.connect(self.notifications_changed.emit)
+        language_row.addWidget(self.notifications_checkbox)
         language_row.addStretch()
         self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
         self.pause_button = QPushButton(self)
@@ -475,6 +485,9 @@ class SettingsDialog(QDialog):
         timer_reset.setObjectName("timer_reset_button")
         self.timer_reset_button = timer_reset
         timer_reset.clicked.connect(lambda: self.timer_reset.emit())
+        self.previous_button = QPushButton(tr("前のフェーズへ", self.language), self)
+        self.previous_button.setObjectName("previous_button")
+        self.previous_button.clicked.connect(lambda: self.previous_requested.emit())
         self.skip_button = QPushButton(tr("次のフェーズへ", self.language), self)
         self.skip_button.setObjectName("skip_button")
         self.skip_button.clicked.connect(lambda: self.skip_requested.emit())
@@ -514,6 +527,7 @@ class SettingsDialog(QDialog):
         footer = QHBoxLayout()
         footer.setSpacing(6)
         footer.addWidget(self.pause_button)
+        footer.addWidget(self.previous_button)
         footer.addWidget(self.skip_button)
         footer.addWidget(timer_reset)
         footer.addWidget(loop_reset)
@@ -657,6 +671,15 @@ class SettingsDialog(QDialog):
     def set_loop_number(self, number: int) -> None:
         self.loop_label.setText(f"LOOP {number:02d}")
 
+    def set_notifications_enabled(self, enabled: bool) -> None:
+        """Refresh the checkbox without issuing another settings change."""
+        if self.notifications_checkbox.isChecked() != enabled:
+            self.notifications_checkbox.blockSignals(True)
+            try:
+                self.notifications_checkbox.setChecked(enabled)
+            finally:
+                self.notifications_checkbox.blockSignals(False)
+
     def set_pause_state(self, paused: bool) -> None:
         self._paused = paused
         self.pause_button.setText(tr("再開" if paused else "一時停止", self.language))
@@ -670,8 +693,10 @@ class SettingsDialog(QDialog):
         self.language = language
         self.setWindowTitle(f"FocusLoop - {tr('設定', language)}")
         self.language_label.setText(tr("言語", language))
+        self.notifications_checkbox.setText(tr("通知する", language))
         self.loop_reset_button.setText(tr("ループ数をリセット", language))
         self.timer_reset_button.setText(tr("現在のフェーズをリセット", language))
+        self.previous_button.setText(tr("前のフェーズへ", language))
         self.skip_button.setText(tr("次のフェーズへ", language))
         self.add_button.setText(tr("＋ フェーズを追加", language))
         self.note_label.setText(tr(self.note_text, language))
@@ -691,6 +716,9 @@ class FocusLoopApp:
         self.settings = QSettings("FocusLoop", "FocusLoop")
         stored_language = str(self.settings.value("language", "ja"))
         self.language = stored_language if stored_language in LANGUAGES else "ja"
+        self.notifications_enabled = self.settings.value(
+            "notifications_enabled", True, type=bool
+        )
         old_work = _int_setting(self.settings, "work_minutes", 45, 1, 240)
         old_break = _int_setting(self.settings, "break_minutes", 15, 1, 240)
         legacy_font_size = (
@@ -730,6 +758,8 @@ class FocusLoopApp:
 
         self.pause_action = self.menu.addAction(tr("一時停止", self.language))
         self.pause_action.triggered.connect(self.toggle_pause)
+        self.previous_action = self.menu.addAction(tr("前のフェーズへ", self.language))
+        self.previous_action.triggered.connect(self.previous)
         self.skip_action = self.menu.addAction(tr("次のフェーズへ", self.language))
         self.skip_action.triggered.connect(self.skip)
         self.reset_action = self.menu.addAction(tr("現在のフェーズをリセット", self.language))
@@ -849,16 +879,21 @@ class FocusLoopApp:
         # Clear the old compatibility keys too so they cannot reappear later.
         self.settings.clear()
         self.settings.setValue("language", self.language)
+        self.notifications_enabled = True
+        self.settings.setValue("notifications_enabled", self.notifications_enabled)
         self.settings.setValue("phases_json", phases_to_json(phases))
         self.settings.setValue("loop_number", 1)
         self.settings.sync()
 
         if self.settings_dialog is not None:
             self.settings_dialog.restore_defaults(phases, 1)
+            self.settings_dialog.set_notifications_enabled(self.notifications_enabled)
         self.update()
 
     def _notify_phase_change(self) -> None:
         """Send a Windows system-tray notification at each phase transition."""
+        if not self.notifications_enabled:
+            return
         phase = self.timer_model.current_phase
         name = phase_name(phase.name, self.language)
         message = (
@@ -908,6 +943,11 @@ class FocusLoopApp:
         self.update()
         self._notify_phase_change()
 
+    def previous(self) -> None:
+        self.timer_model.previous()
+        self.update()
+        self._notify_phase_change()
+
     def reset(self) -> None:
         self.timer_model.restart()
         self.update()
@@ -920,20 +960,31 @@ class FocusLoopApp:
             self.settings_dialog.activateWindow()
             return
 
-        dialog = SettingsDialog(None, self.timer_model, self.language)
+        dialog = SettingsDialog(
+            None, self.timer_model, self.language, self.notifications_enabled
+        )
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
         dialog.timer_reset.connect(self.reset)
         dialog.skip_requested.connect(self.skip)
+        dialog.previous_requested.connect(self.previous)
         dialog.pause_toggle.connect(self.toggle_pause)
         dialog.initialize_requested.connect(self._initialize_defaults)
         dialog.language_changed.connect(self._set_language)
+        dialog.notifications_changed.connect(self._set_notifications_enabled)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
+
+    def _set_notifications_enabled(self, enabled: bool) -> None:
+        if enabled == self.notifications_enabled:
+            return
+        self.notifications_enabled = enabled
+        self.settings.setValue("notifications_enabled", enabled)
+        self.settings.sync()
 
     def _set_language(self, language: str) -> None:
         if language not in LANGUAGES or language == self.language:
@@ -941,6 +992,7 @@ class FocusLoopApp:
         self.language = language
         self.settings.setValue("language", language)
         self.settings.sync()
+        self.previous_action.setText(tr("前のフェーズへ", language))
         self.skip_action.setText(tr("次のフェーズへ", language))
         self.reset_action.setText(tr("現在のフェーズをリセット", language))
         self.loop_reset_action.setText(tr("ループ数をリセット", language))

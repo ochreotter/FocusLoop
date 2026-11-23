@@ -85,7 +85,7 @@ def default_phases(
         PhaseConfig(
             "休憩中", break_minutes, color="mint", opacity=20,
             font_size=300 if font_size is None else font_size,
-            gradient_end="white", position="center",
+            gradient=False, gradient_end="white", position="center",
         ),
     )
 
@@ -232,6 +232,13 @@ class FocusTimer:
         self.phase_index = (self.phase_index + 1) % len(self.phases)
         if self.phase_index == 0:
             self.loop_number += 1
+        self.restart(now=now)
+
+    def previous(self, *, now: float | None = None) -> None:
+        """Go back one phase, wrapping to the last phase of the prior loop."""
+        if self.phase_index == 0:
+            self.loop_number = max(1, self.loop_number - 1)
+        self.phase_index = (self.phase_index - 1) % len(self.phases)
         self.restart(now=now)
 
     def reset_loop_count(self) -> None:

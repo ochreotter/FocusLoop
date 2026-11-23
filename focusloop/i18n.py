@@ -7,11 +7,13 @@ LANGUAGES = ("ja", "en")
 
 ENGLISH = {
     "言語": "Language",
+    "通知する": "Notifications",
     "設定": "Settings",
     "システムトレイを利用できないため、起動できません。":
         "FocusLoop cannot start because the system tray is unavailable.",
     "一時停止": "Pause",
     "再開": "Resume",
+    "前のフェーズへ": "Previous phase",
     "次のフェーズへ": "Next phase",
     "現在のフェーズをリセット": "Reset current phase",
     "ループ数をリセット": "Reset loop count",
