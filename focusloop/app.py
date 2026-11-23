@@ -471,8 +471,9 @@ class SettingsDialog(QDialog):
     def _reorder_cards(self, source: PhaseCard, target: PhaseCard) -> None:
         if source is target or source not in self.cards or target not in self.cards:
             return
+        destination = self.cards.index(target)
         self.cards.remove(source)
-        self.cards.insert(self.cards.index(target), source)
+        self.cards.insert(destination, source)
         self.cards_layout.removeWidget(source)
         self.cards_layout.insertWidget(self.cards.index(source), source)
         self._update_move_buttons()
