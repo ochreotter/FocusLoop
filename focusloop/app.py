@@ -34,7 +34,6 @@ from .geometry import tray_menu_position
 from .icons import clock_icon
 from .overlay import DISPLAY_STYLES, Overlay
 from .timer import (
-    COLOR_HEX,
     COLOR_PRESETS,
     DEFAULT_FONT_SIZE,
     MAX_FONT_SIZE,
@@ -84,6 +83,27 @@ def color_combo(parent: QWidget, selected: str) -> QComboBox:
         combo.addItem(color_swatch_icon(hex_value), label, key)
     combo.setCurrentIndex(max(0, combo.findData(selected)))
     return combo
+
+
+def confirm_change(
+    parent: QWidget, title: str, question: str, details: str, confirm_label: str,
+) -> bool:
+    """Shared safe confirmation: cancel is the default, including Escape/close."""
+    message = QMessageBox(parent)
+    message.setWindowTitle(title)
+    message.setIcon(QMessageBox.Icon.Warning)
+    message.setText(question)
+    message.setInformativeText(details)
+    message.setStandardButtons(
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+    )
+    message.button(QMessageBox.StandardButton.Yes).setText(confirm_label)
+    cancel = message.button(QMessageBox.StandardButton.Cancel)
+    cancel.setText("キャンセル")
+    message.setDefaultButton(cancel)
+    for button in message.buttons():
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+    return message.exec() == QMessageBox.StandardButton.Yes
 
 
 class SettingsDialog(QDialog):
@@ -294,26 +314,12 @@ class SettingsDialog(QDialog):
         opacity.valueChanged.connect(lambda _value: self._notify_change())
 
     def _confirm_initialize(self) -> None:
-        """Require explicit confirmation before discarding every saved setting."""
-        message = QMessageBox(self)
-        message.setWindowTitle("FocusLoop - 初期化")
-        message.setIcon(QMessageBox.Icon.Warning)
-        message.setText("すべての設定を初期化しますか？")
-        message.setInformativeText(
+        if confirm_change(
+            self, "FocusLoop - 初期化", "すべての設定を初期化しますか？",
             "フェーズ・色・サイズ・表示位置・表示スタイル・ループ数を初期値に戻し、"
-            "作業45:00からタイマーを再開します。この操作は取り消せません。"
-        )
-        message.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
-        )
-        confirm = message.button(QMessageBox.StandardButton.Yes)
-        confirm.setText("初期化する")
-        cancel = message.button(QMessageBox.StandardButton.Cancel)
-        cancel.setText("キャンセル")
-        message.setDefaultButton(cancel)
-        for button in message.buttons():
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-        if message.exec() == QMessageBox.StandardButton.Yes:
+            "作業45:00からタイマーを再開します。この操作は取り消せません。",
+            "初期化する",
+        ):
             self.initialize_requested.emit()
 
     def restore_defaults(
@@ -402,23 +408,10 @@ class SettingsDialog(QDialog):
             QMessageBox.information(self, "FocusLoop", "フェーズは最低1つ必要です。")
             return
 
-        phase_name = editor.text()
-        message = QMessageBox(self)
-        message.setWindowTitle("FocusLoop - フェーズ削除")
-        message.setIcon(QMessageBox.Icon.Warning)
-        message.setText(f"「{phase_name}」を削除しますか？")
-        message.setInformativeText("この操作は取り消せません。")
-        message.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
-        )
-        confirm = message.button(QMessageBox.StandardButton.Yes)
-        confirm.setText("削除する")
-        cancel = message.button(QMessageBox.StandardButton.Cancel)
-        cancel.setText("キャンセル")
-        message.setDefaultButton(cancel)
-        for button in message.buttons():
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-        if message.exec() == QMessageBox.StandardButton.Yes:
+        if confirm_change(
+            self, "FocusLoop - フェーズ削除", f"「{editor.text()}」を削除しますか？",
+            "この操作は取り消せません。", "削除する",
+        ):
             self._delete_row(editor)
 
     def _delete_row(self, editor: QWidget) -> None:
