@@ -439,24 +439,40 @@ class SettingsDialog(QDialog):
     timer_reset = Signal()
     pause_toggle = Signal()
     initialize_requested = Signal()
+    language_changed = Signal(str)
 
-    def __init__(self, parent, timer: FocusTimer) -> None:
+    def __init__(self, parent, timer: FocusTimer, language: str = "ja") -> None:
         super().__init__(parent)
-        self.setWindowTitle("FocusLoop - 設定")
+        self.language = language if language in LANGUAGES else "ja"
+        self.setWindowTitle(f"FocusLoop - {tr('設定', self.language)}")
         self.resize(850, 690)
         self.setMinimumSize(660, 440)
         self.result_phases: tuple[PhaseConfig, ...] | None = None
         self._rendering = False
+        self._paused = timer.paused
+        self.language_label = QLabel(tr("言語", self.language), self)
+        self.language_combo = QComboBox(self)
+        self.language_combo.setObjectName("language_combo")
+        self.language_combo.addItem("日本語", "ja")
+        self.language_combo.addItem("English", "en")
+        self.language_combo.setCurrentIndex(self.language_combo.findData(self.language))
+        self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+        language_row = QHBoxLayout()
+        language_row.addWidget(self.language_label)
+        language_row.addWidget(self.language_combo)
+        language_row.addStretch()
         self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
         self.pause_button = QPushButton(self)
         self.pause_button.setObjectName("pause_button")
         self.set_pause_state(timer.paused)
         self.pause_button.clicked.connect(lambda: self.pause_toggle.emit())
-        loop_reset = QPushButton("ループ数をリセット", self)
+        loop_reset = QPushButton(tr("ループ数をリセット", self.language), self)
         loop_reset.setObjectName("loop_reset_button")
+        self.loop_reset_button = loop_reset
         loop_reset.clicked.connect(lambda: self.loop_reset.emit())
-        timer_reset = QPushButton("現在のフェーズをリセット", self)
+        timer_reset = QPushButton(tr("現在のフェーズをリセット", self.language), self)
         timer_reset.setObjectName("timer_reset_button")
+        self.timer_reset_button = timer_reset
         timer_reset.clicked.connect(lambda: self.timer_reset.emit())
 
         self.cards_container = QWidget(self)
@@ -471,21 +487,25 @@ class SettingsDialog(QDialog):
         self.scroll.setWidget(self.cards_container)
         self._render_cards([asdict(phase) for phase in timer.phases], timer.phase_index)
 
-        add_button = QPushButton("＋ フェーズを追加", self)
+        add_button = QPushButton(tr("＋ フェーズを追加", self.language), self)
+        self.add_button = add_button
         add_button.clicked.connect(self._add_phase)
-        note = QLabel(
+        self.note_text = (
             "設定は即時反映・保存されます。⠿をドラッグ、または↑↓で並べ替え。"
-            "順番・分数の変更時は先頭から再スタートします。",
-            self,
+            "順番・分数の変更時は先頭から再スタートします。"
         )
+        note = QLabel(tr(self.note_text, self.language), self)
+        self.note_label = note
         note.setWordWrap(True)
 
-        initialize = QPushButton("設定初期化", self)
+        initialize = QPushButton(tr("設定初期化", self.language), self)
+        self.initialize_button = initialize
         initialize.setObjectName("initialize_button")
-        initialize.setToolTip("設定とタイマーをすべて初期値に戻す")
+        initialize.setToolTip(tr("設定とタイマーをすべて初期値に戻す", self.language))
         initialize.clicked.connect(self._confirm_initialize)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
-        buttons.button(QDialogButtonBox.StandardButton.Close).setText("閉じる")
+        self.close_button = buttons.button(QDialogButtonBox.StandardButton.Close)
+        self.close_button.setText(tr("閉じる", self.language))
         buttons.rejected.connect(self.reject)
         footer = QHBoxLayout()
         footer.setSpacing(6)
@@ -498,6 +518,7 @@ class SettingsDialog(QDialog):
         footer.addWidget(buttons)
 
         layout = QVBoxLayout(self)
+        layout.addLayout(language_row)
         layout.addWidget(self.scroll, 1)
         layout.addWidget(add_button)
         layout.addWidget(note)
@@ -562,7 +583,7 @@ class SettingsDialog(QDialog):
             return
         try:
             phases = tuple(
-                PhaseConfig(**{**card.snapshot(), "name": card.name.text().strip()})
+                PhaseConfig(**{**card.snapshot(), "name": card.snapshot()["name"].strip()})
                 for card in self.cards
             )
         except ValueError:
@@ -573,12 +594,14 @@ class SettingsDialog(QDialog):
 
     def _confirm_delete_card(self, card: PhaseCard) -> None:
         if len(self.cards) <= 1:
-            QMessageBox.information(self, "FocusLoop", "フェーズは最低1つ必要です。")
+            QMessageBox.information(self, "FocusLoop", tr("フェーズは最低1つ必要です。", self.language))
             return
+        name = card.name.text()
+        question = f"Delete \"{name}\"?" if self.language == "en" else f"「{name}」を削除しますか？"
         if confirm_change(
-            self, "FocusLoop - フェーズ削除",
-            f"「{card.name.text()}」を削除しますか？",
-            "この操作は取り消せません。", "削除する",
+            self, f"FocusLoop - {'Delete phase' if self.language == 'en' else 'フェーズ削除'}",
+            question, tr("この操作は取り消せません。", self.language),
+            tr("削除する", self.language), self.language,
         ):
             remaining = [other for other in self.cards if other is not card]
             rows = [other.snapshot() for other in remaining]
@@ -601,11 +624,15 @@ class SettingsDialog(QDialog):
         self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
 
     def _confirm_initialize(self) -> None:
-        if confirm_change(
-            self, "FocusLoop - 設定初期化", "すべての設定を初期化しますか？",
+        details = (
             "フェーズ・色・サイズ・表示位置・表示モード・最前面・ループ数を初期値に戻し、"
-            "作業45:00からタイマーを再開します。この操作は取り消せません。",
-            "設定初期化する",
+            "作業中45:00からタイマーを再開します。この操作は取り消せません。"
+        )
+        if confirm_change(
+            self, f"FocusLoop - {tr('設定初期化', self.language)}",
+            tr("すべての設定を初期化しますか？", self.language),
+            tr(details, self.language),
+            tr("設定初期化する", self.language), self.language,
         ):
             self.initialize_requested.emit()
 
@@ -619,7 +646,28 @@ class SettingsDialog(QDialog):
         self.loop_label.setText(f"LOOP {number:02d}")
 
     def set_pause_state(self, paused: bool) -> None:
-        self.pause_button.setText("再開" if paused else "一時停止")
+        self._paused = paused
+        self.pause_button.setText(tr("再開" if paused else "一時停止", self.language))
+
+    def _on_language_changed(self, _index: int) -> None:
+        language = self.language_combo.currentData()
+        if language == self.language or language not in LANGUAGES:
+            return
+        rows = [card.snapshot() for card in self.cards]
+        expanded = {i for i, card in enumerate(self.cards) if card.expand_button.isChecked()}
+        self.language = language
+        self.setWindowTitle(f"FocusLoop - {tr('設定', language)}")
+        self.language_label.setText(tr("言語", language))
+        self.loop_reset_button.setText(tr("ループ数をリセット", language))
+        self.timer_reset_button.setText(tr("現在のフェーズをリセット", language))
+        self.add_button.setText(tr("＋ フェーズを追加", language))
+        self.note_label.setText(tr(self.note_text, language))
+        self.initialize_button.setText(tr("設定初期化", language))
+        self.initialize_button.setToolTip(tr("設定とタイマーをすべて初期値に戻す", language))
+        self.close_button.setText(tr("閉じる", language))
+        self.set_pause_state(self._paused)
+        self._render_cards(rows, expanded_indices=expanded)
+        self.language_changed.emit(language)
 
 
 
