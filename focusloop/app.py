@@ -124,7 +124,7 @@ class Overlay(QWidget):
 class SettingsDialog(QDialog):
     """Edit all phases, including order, text color and per-phase opacity."""
 
-    applied = Signal(object)
+    changed = Signal(object, bool)
 
     def __init__(self, parent, timer: FocusTimer, font_size: int, position: str) -> None:
         super().__init__(parent)
@@ -165,30 +165,23 @@ class SettingsDialog(QDialog):
             }
             for phase in timer.phases
         ])
+        self.font_spin.valueChanged.connect(lambda _value: self._notify_change())
+        self.position_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
 
         add_button = QPushButton("＋ フェーズを追加", self)
         add_button.clicked.connect(self._add_phase)
 
         note = QLabel(
-            "上から順に自動で繰り返します。"
-            "フェーズの順番・名前・分数を変更すると、先頭から再スタートします。"
-            "色・透過率・位置・文字サイズのみの変更では時間をリセットしません。"
-            "「適用」を押すと画面を閉じずに変更を反映します。"
-            "適用済みの変更は「キャンセル」後も保持されます。",
+            "設定は変更と同時に反映・保存されます。"
+            "フェーズの順番・分数を変更すると、先頭から再スタートします。"
+            "名前・色・透過率・位置・文字サイズの変更では時間をリセットしません。"
+            "「閉じる」を押しても設定は保持されます。",
             self,
         )
         note.setWordWrap(True)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel
-            | QDialogButtonBox.StandardButton.Apply,
-            parent=self,
-        )
-        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
-        apply_button.setText("適用")
-        apply_button.clicked.connect(self.apply_changes)
-        buttons.accepted.connect(self.accept)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
+        buttons.button(QDialogButtonBox.StandardButton.Close).setText("閉じる")
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
@@ -199,11 +192,16 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
 
     def _render_rows(self, rows: list[dict]) -> None:
+        # Row rebuilds initialize widgets and must not trigger partial saves.
+        self._rendering = True
         self.table.setUpdatesEnabled(False)
-        self.table.setRowCount(0)
-        for row in rows:
-            self._add_row(row)
-        self.table.setUpdatesEnabled(True)
+        try:
+            self.table.setRowCount(0)
+            for row in rows:
+                self._add_row(row)
+        finally:
+            self.table.setUpdatesEnabled(True)
+            self._rendering = False
 
     def _add_row(self, phase: dict) -> None:
         row = self.table.rowCount()
@@ -259,6 +257,39 @@ class SettingsDialog(QDialog):
         delete.clicked.connect(lambda checked=False, editor=name: self._delete_row(editor))
         self.table.setCellWidget(row, 4, buttons_cell)
 
+        name.textChanged.connect(lambda _text: self._notify_change())
+        minutes.valueChanged.connect(lambda _value: self._notify_change())
+        color.currentIndexChanged.connect(lambda _index: self._notify_change())
+        opacity.valueChanged.connect(
+            lambda value, label=opacity_label: self._opacity_changed(label, value)
+        )
+
+    def _opacity_changed(self, label: QLabel, value: int) -> None:
+        label.setText(f"{value}%")
+        self._notify_change()
+
+    def _notify_change(self, force_restart: bool = False) -> None:
+        if self._rendering:
+            return
+        try:
+            phases = tuple(
+                PhaseConfig(
+                    name=row["name"].strip(),
+                    minutes=row["minutes"],
+                    color=row["color"],
+                    opacity=row["opacity"],
+                )
+                for row in self._snapshot()
+            )
+        except ValueError:
+            # A name can temporarily be empty while typing. Resume as soon as
+            # the input is valid, without interrupting the user with a dialog.
+            return
+
+        if force_restart or phases != self.result_phases:
+            self.result_phases = phases
+            self.changed.emit(self, force_restart)
+
     def _snapshot(self) -> list[dict]:
         rows = []
         for index in range(self.table.rowCount()):
@@ -285,6 +316,7 @@ class SettingsDialog(QDialog):
         rows = self._snapshot()
         rows[row], rows[other] = rows[other], rows[row]
         self._render_rows(rows)
+        self._notify_change(force_restart=True)
 
     def _delete_row(self, editor: QWidget) -> None:
         if self.table.rowCount() <= 1:
@@ -295,39 +327,14 @@ class SettingsDialog(QDialog):
             rows = self._snapshot()
             rows.pop(row)
             self._render_rows(rows)
+            self._notify_change(force_restart=True)
 
     def _add_phase(self) -> None:
         rows = self._snapshot()
         rows.append({"name": "新しいフェーズ", "minutes": 5, "color": "sky", "opacity": 100})
         self._render_rows(rows)
         self.table.scrollToBottom()
-
-    def _validate_changes(self) -> bool:
-        try:
-            self.result_phases = tuple(
-                PhaseConfig(
-                    name=row["name"].strip(),
-                    minutes=row["minutes"],
-                    color=row["color"],
-                    opacity=row["opacity"],
-                )
-                for row in self._snapshot()
-            )
-        except ValueError as error:
-            QMessageBox.warning(self, "FocusLoop", f"設定内容をご確認ください：{error}")
-            return False
-        return True
-
-    def apply_changes(self) -> None:
-        """Save and display changes immediately without closing this dialog."""
-        if self._validate_changes():
-            self.applied.emit(self)
-
-    def accept(self) -> None:
-        """OK applies pending changes and closes the dialog."""
-        if self._validate_changes():
-            self.applied.emit(self)
-            super().accept()
+        self._notify_change(force_restart=True)
 
 
 class FocusLoopApp:
@@ -477,7 +484,7 @@ class FocusLoopApp:
 
         dialog = SettingsDialog(None, self.timer_model, self.font_size, self.position)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        dialog.applied.connect(self._apply_settings)
+        dialog.changed.connect(self._apply_settings)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
         dialog.show()
@@ -487,14 +494,17 @@ class FocusLoopApp:
     def _settings_closed(self, result: int) -> None:
         self.settings_dialog = None
 
-    def _apply_settings(self, dialog: SettingsDialog) -> None:
-        """Persist and preview settings without closing the settings window."""
+    def _apply_settings(self, dialog: SettingsDialog, force_restart: bool) -> None:
+        """Immediately preview and persist every valid settings change."""
         if dialog.result_phases is None:
             return
-        self.timer_model.configure(dialog.result_phases)
-        self.font_size = dialog.font_spin.value()
-        self.position = str(dialog.position_combo.currentData())
-        self.overlay.apply_appearance(self.font_size, self.position)
+        self.timer_model.configure(dialog.result_phases, force_restart=force_restart)
+        font_size = dialog.font_spin.value()
+        position = str(dialog.position_combo.currentData())
+        if (font_size, position) != (self.font_size, self.position):
+            self.font_size, self.position = font_size, position
+            self.overlay.apply_appearance(self.font_size, self.position)
+
         self.settings.setValue("phases_json", phases_to_json(self.timer_model.phases))
         self.settings.setValue("font_size", self.font_size)
         self.settings.setValue("position", self.position)
