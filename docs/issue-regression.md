@@ -1,6 +1,6 @@
 # FocusLoop 現行仕様・Issue回帰テスト対応表
 
-この表は2026-11-23のIssue #5〜#57を検査した結果。**後続Issueで上書きされた古いUI要件を再検証しない**。それ以外の操作・保存・描画・CIを、PythonロジックテストとWindows Qtオフスクリーンテストで確認する。
+この表はIssue #5〜#67のうち現行仕様に関係するものを対象にした回帰テスト対応表。**後続Issueで上書きされた古いUI要件を再検証しない**。それ以外の操作・保存・描画・CIを、PythonロジックテストとWindows Qtオフスクリーンテストで確認する。
 
 ## Issue別チェック一覧
 
@@ -9,7 +9,7 @@
 | #5 | 作業45分→休憩15分、一時停止・再開・スキップ・再スタート、monotonicな遅延復帰 | `tests/test_timer.py`, `tests/test_issue_regression.py` |
 | #6 | 透明・クリック透過・フォーカス非取得。数字のみ表示は#16→#43のSimpleに変更 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #7 | フェーズ追加削除・名前・時間・並べ替え・保存復元。テーブルは#45でカードに変更 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
-| #8 | 色・透過率。6色は#25でブラックを追加して7色 | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py` |
+| #8 | 色・不透明度。6色は#25でブラックを追加して7色 | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py` |
 | #9 | トレイ左クリック設定表示・右クリックメニューと画面内配置 | `tests/test_geometry.py`, `tests/ui/test_app_ui.py` |
 | #10 | 即時反映、QSettings保存、旧バージョン移行 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #11 | 自動フェーズ切替と手動スキップの通知 | `tests/ui/test_app_ui.py`（通知APIの呼出し）。実通知は実機確認 |
@@ -20,7 +20,7 @@
 | #16 | 標準の円形UIとSimple数字表示。共通切替は#43でフェーズ別チェックへ変更 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #17 | 進捗リング・背景トラック・透明度・一時停止との両立。回転方向は#28に従う | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #18 | LOOP表示・永続化・リセット・長時間経過の周回加算 | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
-| #19 | グラデーションON/OFF、サブ色、Modernリング、透過率 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
+| #19 | グラデーションON/OFF、サブ色、標準表示の進捗リング、不透明度 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #21 | 「サイズ」スライダー8〜300pt（#53）。横長テーブル列は#45でカード内の項目へ変更 | `tests/ui/test_app_ui.py` |
 | #23 | メイン色とサブ色/グラデーション、チェック→色選択。列配置は#45でカード内へ変更 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #24 | 白・黒を含むスウォッチ表示 | `tests/ui/test_app_ui.py` |
@@ -40,15 +40,19 @@
 | #43 | Simpleチェック・表示位置をフェーズごとに保存/移行/切替 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #44 | 最前面チェックをフェーズごとに保存/切替、透過維持 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #45 | 2列のフェーズカード・アコーディオン、要約表示、追加削除・上下/ドラッグ並べ替え | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
-| #53 | 8〜300pt・設定画面で一時停止/再開・Modernの上部にフェーズ名、下部にLOOP | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py`, `tests/ui/test_overlay_contrast.py` |
+| #47 | 複数カードの同時展開、∧/∨による開閉表示、ヘッダーの色見本削除 | `tests/ui/test_app_ui.py` |
+| #49 | ヘッダー概要のコントラスト改善、ヘッダー限定クリックで開閉 | `tests/ui/test_app_ui.py` |
+| #51 | 標準表示の進捗ゲージを最大30fpsで滑らかに描画。Simple・停止・非表示では停止 | `tests/test_timer.py`, `tests/ui/test_app_ui.py`, `tests/ui/test_overlay_contrast.py` |
+| #53 | 8〜300pt・設定画面で一時停止/再開・標準表示の上部にフェーズ名、下部にLOOP | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py`, `tests/ui/test_overlay_contrast.py` |
 | #55 | フェーズ別非表示チェック、切替時の自動再表示、裏側のタイマー・トレイ継続、初期化/保存/旧設定との互換 | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
 | #56 | LOOPと各リセット操作の設定画面フッターへの移動、「設定初期化」への名称変更 | `tests/ui/test_app_ui.py` |
-| #57 | 参照画像どおりの作業中/休憩中の初期値（50/300pt、30/20%、アンバー→ローズ・ミント→白、左下/中央）とフッター左右グループ | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py` |
-| #59 | 最上部の日本語/英語切替とQSettings保存、フェーズ名の表示専用翻訳、トレイ/通知/確認画面の多言語化、切替によるタイマー無変更 | `tests/test_i18n.py`, `tests/ui/test_i18n_ui.py` |
-| #61 | 設定フッターとトレイの4操作を同じ順番に統一（Pause→Next→Phase reset→Loop reset）、フッター専用LOOP表示、設定初期化と閉じるを6pxで右端に集約 | `tests/ui/test_app_ui.py`, `tests/ui/test_i18n_ui.py` |
+| #57 | 現行の初期設定（作業中：アンバー→ローズ・50pt・30%・左下／休憩中：ミント・300pt・20%・中央、グラデーションOFFは#66）とフッター左右グループ | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py` |
+| #59 | 最上部の日英切替とQSettings保存、トレイ/通知/確認画面の多言語化。フェーズ名の翻訳は#67で廃止 | `tests/test_i18n.py`, `tests/ui/test_i18n_ui.py` |
+| #61 | 設定フッターとトレイの5操作を同じ順番に統一（Pause→Previous→Next→Phase reset→Loop reset）、フッター専用LOOP表示、設定初期化と閉じるを6pxで右端に集約 | `tests/ui/test_app_ui.py`, `tests/ui/test_i18n_ui.py` |
 | #63 | 設定画面最上段の言語コンボすぐ右隣に共通「通知する」チェックを配置。自動/手動通知の停止、QSettings保存/復元、初期化でON、日英切替 | `tests/ui/test_notifications_ui.py` |
 | #65 | 前のフェーズへを設定フッターとトレイ右クリックへ追加。逆方向のループ数更新、一時停止維持、日英翻訳 | `tests/test_timer.py`, `tests/ui/test_app_ui.py`, `tests/ui/test_i18n_ui.py` |
 | #66 | 休憩中のグラデーション初期値はOFF。サブ色ホワイトは維持し、既存の保存設定は変更しない | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
+| #67 | フェーズ名を一切翻訳しない、UIを不透明度表記へ統一、README/ライセンス/リリース構成を整合 | `tests/test_i18n.py`, `tests/ui/test_i18n_ui.py`, `tests/test_release_contract.py` |
 
 ## リファクタリング判断
 
