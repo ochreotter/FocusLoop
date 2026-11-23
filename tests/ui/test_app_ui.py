@@ -78,7 +78,7 @@ class SettingsUITests(unittest.TestCase):
         header = self.dialog.table.verticalHeader()
         self.assertTrue(header.sectionsMovable())
         self.assertTrue(header.isVisible())
-        self.assertEqual([x.name for x in self.dialog._snapshot_as_phases()], ["作業", "休憩"])
+        self.assertEqual([x["name"] for x in self.dialog._snapshot()], ["作業", "休憩"])
         header.moveSection(0, 1)  # Same Qt operation as a header drag.
         self.assertEqual(
             [phase.name for phase in self.dialog.result_phases], ["休憩", "作業"]
