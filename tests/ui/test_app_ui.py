@@ -59,6 +59,9 @@ class CardSettingsTests(unittest.TestCase):
         self.assertTrue(first.title.font().bold())
         self.assertGreaterEqual(first.title.font().pointSize(), 13)
         self.assertIn("palette(window)", first.header_widget.styleSheet())
+        self.assertIn("palette(window-text)", first.summary.styleSheet())
+        self.assertNotIn("palette(mid)", first.summary.styleSheet())
+        self.assertIn("font-weight: 500", first.summary.styleSheet())
         self.assertIn("palette(base)", first.body.styleSheet())
         self.assertNotEqual(first.header_widget.styleSheet(), first.body.styleSheet())
         self.assertEqual(first.simple.text(), "Simple")
@@ -87,16 +90,29 @@ class CardSettingsTests(unittest.TestCase):
         QTest.mouseClick(first.header_widget, Qt.MouseButton.LeftButton)
         self.assertTrue(first.expand_button.isChecked())
 
-        # Background of the expanded editor is clickable, but inputs aren't.
-        QTest.mouseClick(first.body, Qt.MouseButton.LeftButton, pos=QPoint(3, 3))
-        self.assertFalse(first.body.isVisible())
-        first.expand_button.click()
+        # Body background, field labels and the outer border must NOT toggle.
         self.assertTrue(first.body.isVisible())
+        QTest.mouseClick(first.body, Qt.MouseButton.LeftButton, pos=QPoint(3, 3))
+        self.assertTrue(first.body.isVisible())
+        name_label = next(
+            label for label in first.body.findChildren(QLabel)
+            if label.text() == "フェーズ名"
+        )
+        QTest.mouseClick(name_label, Qt.MouseButton.LeftButton)
+        self.assertTrue(first.body.isVisible())
+        QTest.mouseClick(first.delete_button.parentWidget(), Qt.MouseButton.LeftButton,
+                         pos=QPoint(2, 2))
+        self.assertTrue(first.body.isVisible())
+        QTest.mouseClick(first, Qt.MouseButton.LeftButton, pos=QPoint(1, 1))
+        self.assertTrue(first.body.isVisible())
+
+        # Editor interactions and reorder controls remain independent.
         first.simple.click()
         self.assertTrue(first.body.isVisible())
         QTest.mouseClick(first.drag_handle, Qt.MouseButton.LeftButton)
         self.assertTrue(first.body.isVisible())
         self.assertEqual(len(self.events), 1)
+        self.assertTrue(second.body.isVisible())
 
     def test_all_buttons_and_checkboxes_show_pointing_hand(self):
         for button in self.dialog.findChildren(QAbstractButton):
