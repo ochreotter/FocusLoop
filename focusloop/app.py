@@ -676,6 +676,8 @@ class FocusLoopApp:
         self.qt_app = qt_app
         self.qt_app.setQuitOnLastWindowClosed(False)
         self.settings = QSettings("FocusLoop", "FocusLoop")
+        stored_language = str(self.settings.value("language", "ja"))
+        self.language = stored_language if stored_language in LANGUAGES else "ja"
         old_work = _int_setting(self.settings, "work_minutes", 45, 1, 240)
         old_break = _int_setting(self.settings, "break_minutes", 15, 1, 240)
         legacy_font_size = (
@@ -701,7 +703,10 @@ class FocusLoopApp:
 
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
         self._last_loop_saved = loop_number
-        self.overlay = Overlay(self.timer_model.current_phase)
+        self.overlay = Overlay(replace(
+            self.timer_model.current_phase,
+            name=phase_name(self.timer_model.current_phase.name, self.language),
+        ))
         self._overlay_started = False
         self.tray = QSystemTrayIcon(clock_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
@@ -710,19 +715,19 @@ class FocusLoopApp:
         self.status_action.setEnabled(False)
         self.menu.addSeparator()
 
-        self.pause_action = self.menu.addAction("一時停止")
+        self.pause_action = self.menu.addAction(tr("一時停止", self.language))
         self.pause_action.triggered.connect(self.toggle_pause)
-        self.skip_action = self.menu.addAction("次のフェーズへ")
+        self.skip_action = self.menu.addAction(tr("次のフェーズへ", self.language))
         self.skip_action.triggered.connect(self.skip)
-        self.reset_action = self.menu.addAction("現在のフェーズをリセット")
+        self.reset_action = self.menu.addAction(tr("現在のフェーズをリセット", self.language))
         self.reset_action.triggered.connect(self.reset)
         self.menu.addSeparator()
 
-        settings_action = self.menu.addAction("設定")
-        settings_action.triggered.connect(self.show_settings)
+        self.settings_action = self.menu.addAction(tr("設定", self.language))
+        self.settings_action.triggered.connect(self.show_settings)
         self.menu.addSeparator()
-        quit_action = self.menu.addAction("終了")
-        quit_action.triggered.connect(self.close)
+        self.quit_action = self.menu.addAction(tr("終了", self.language))
+        self.quit_action.triggered.connect(self.close)
 
         # Handle context clicks ourselves to keep the entire menu above the taskbar.
         self.tray.activated.connect(self._tray_activated)
@@ -740,7 +745,7 @@ class FocusLoopApp:
     def start(self) -> bool:
         if not QSystemTrayIcon.isSystemTrayAvailable():
             QMessageBox.critical(
-                None, "FocusLoop", "システムトレイを利用できないため、起動できません。"
+                None, "FocusLoop", tr("システムトレイを利用できないため、起動できません。", self.language)
             )
             return False
         self.tray.show()
@@ -754,8 +759,9 @@ class FocusLoopApp:
         remaining = self.timer_model.remaining_seconds()
         display = f"{remaining // 60:02d}:{remaining % 60:02d}"
         phase = self.timer_model.current_phase
+        visual_phase = replace(phase, name=phase_name(phase.name, self.language))
         self.overlay.set_clock(
-            display, phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
+            display, visual_phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
         )
         # Hidden is a phase display setting, not a timer pause: the model and
         # tray keep updating. Do not show a window before start() is called.
@@ -766,13 +772,13 @@ class FocusLoopApp:
             self.overlay.reposition()
         if self.timer_model.loop_number != self._last_loop_saved:
             self._save_loop_number()
-        state = (display, phase, self.timer_model.paused)
+        state = (display, phase, self.timer_model.paused, self.language)
         if state != self.last_display:
-            title = phase.name
+            title = visual_phase.name
             if self.timer_model.paused:
-                title += " (一時停止)"
+                title += f" ({tr('一時停止', self.language)})"
             self.status_action.setText(f"{title}  {display}")
-            self.pause_action.setText("再開" if self.timer_model.paused else "一時停止")
+            self.pause_action.setText(tr("再開" if self.timer_model.paused else "一時停止", self.language))
             if self.settings_dialog is not None:
                 self.settings_dialog.set_pause_state(self.timer_model.paused)
             self.tray.setToolTip(f"FocusLoop - {title} {display}")
@@ -827,6 +833,7 @@ class FocusLoopApp:
 
         # Clear the old compatibility keys too so they cannot reappear later.
         self.settings.clear()
+        self.settings.setValue("language", self.language)
         self.settings.setValue("phases_json", phases_to_json(phases))
         self.settings.setValue("loop_number", 1)
         self.settings.sync()
@@ -838,9 +845,15 @@ class FocusLoopApp:
     def _notify_phase_change(self) -> None:
         """Send a Windows system-tray notification at each phase transition."""
         phase = self.timer_model.current_phase
+        name = phase_name(phase.name, self.language)
+        message = (
+            f'Started "{name}" ({phase.minutes} min).'
+            if self.language == "en"
+            else f"「{name}」を開始しました（{phase.minutes}分）。"
+        )
         self.tray.showMessage(
             "FocusLoop",
-            f"「{phase.name}」を開始しました（{phase.minutes}分）。",
+            message,
             QSystemTrayIcon.MessageIcon.Information,
             6000,
         )
@@ -892,18 +905,32 @@ class FocusLoopApp:
             self.settings_dialog.activateWindow()
             return
 
-        dialog = SettingsDialog(None, self.timer_model)
+        dialog = SettingsDialog(None, self.timer_model, self.language)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
         dialog.timer_reset.connect(self.reset)
         dialog.pause_toggle.connect(self.toggle_pause)
         dialog.initialize_requested.connect(self._initialize_defaults)
+        dialog.language_changed.connect(self._set_language)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
+
+    def _set_language(self, language: str) -> None:
+        if language not in LANGUAGES or language == self.language:
+            return
+        self.language = language
+        self.settings.setValue("language", language)
+        self.settings.sync()
+        self.skip_action.setText(tr("次のフェーズへ", language))
+        self.reset_action.setText(tr("現在のフェーズをリセット", language))
+        self.settings_action.setText(tr("設定", language))
+        self.quit_action.setText(tr("終了", language))
+        self.last_display = None
+        self.update()
 
     def _settings_closed(self, result: int) -> None:
         self.settings_dialog = None
