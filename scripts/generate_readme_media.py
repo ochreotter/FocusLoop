@@ -3,8 +3,10 @@
 Run on Windows with:
     python -m pip install -r requirements.txt Pillow
     set QT_QPA_PLATFORM=offscreen
+    set FOCUSLOOP_DOCS_CJK_FONT=C:\\path\\to\\NotoSansCJKjp-Regular.otf
     python -m scripts.generate_readme_media
 
+The Japanese font is used only to render screenshots; never commit it.
 The GIF accelerates the timer deliberately; its timer/ring pixels come from Overlay.
 """
 from __future__ import annotations
