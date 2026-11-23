@@ -208,18 +208,42 @@ class SettingsDialog(QDialog):
         opacity_layout.addWidget(opacity_label)
         self.table.setCellWidget(row, 4, opacity_cell)
 
+        gradient = QCheckBox("ON", self.table)
+        gradient.setChecked(bool(phase["gradient"]))
+        self.table.setCellWidget(row, 5, gradient)
+
+        gradient_end = QComboBox(self.table)
+        for key, label, hex_value in COLOR_PRESETS:
+            gradient_end.addItem(label, key)
+            gradient_end.setItemData(
+                gradient_end.count() - 1, QColor(hex_value),
+                Qt.ItemDataRole.DecorationRole,
+            )
+        gradient_end.setCurrentIndex(max(0, gradient_end.findData(phase["gradient_end"])))
+        gradient_end.setEnabled(gradient.isChecked())
+        self.table.setCellWidget(row, 6, gradient_end)
+        gradient.toggled.connect(gradient_end.setEnabled)
+
         delete = QPushButton("削除", self.table)
         delete.setToolTip("削除（最低1フェーズは必要）")
         delete.clicked.connect(lambda checked=False, editor=name: self._delete_row(editor))
-        self.table.setCellWidget(row, 5, delete)
+        self.table.setCellWidget(row, 7, delete)
 
         name.textChanged.connect(lambda _text: self._notify_change())
         minutes.valueChanged.connect(lambda _value: self._notify_change())
         color.currentIndexChanged.connect(lambda _index: self._notify_change())
         font_size.valueChanged.connect(lambda _value: self._notify_change())
+        gradient.toggled.connect(lambda _value: self._notify_change())
+        gradient_end.currentIndexChanged.connect(lambda _value: self._notify_change())
         opacity.valueChanged.connect(
             lambda value, label=opacity_label: self._opacity_changed(label, value)
         )
+
+    def _reset_loop(self) -> None:
+        self.loop_reset.emit()
+
+    def set_loop_number(self, number: int) -> None:
+        self.loop_label.setText(f"LOOP {number:02d}")
 
     def _opacity_changed(self, label: QLabel, value: int) -> None:
         label.setText(f"{value}%")
@@ -236,6 +260,8 @@ class SettingsDialog(QDialog):
                     color=row["color"],
                     opacity=row["opacity"],
                     font_size=row["font_size"],
+                    gradient=row["gradient"],
+                    gradient_end=row["gradient_end"],
                 )
                 for row in self._snapshot()
             )
@@ -244,14 +270,14 @@ class SettingsDialog(QDialog):
             # the input is valid, without interrupting the user with a dialog.
             return
 
-        position = self.position_combo.currentData()
+        appearance = (self.position_combo.currentData(), self.style_combo.currentData())
         if (
             force_restart
             or phases != self.result_phases
-            or position != self._last_emitted_position
+            or appearance != self._last_emitted_appearance
         ):
             self.result_phases = phases
-            self._last_emitted_position = position
+            self._last_emitted_appearance = appearance
             self.changed.emit(self, force_restart)
 
     def _snapshot(self) -> list[dict]:
@@ -267,6 +293,8 @@ class SettingsDialog(QDialog):
                 "color": self.table.cellWidget(index, 2).currentData(),
                 "font_size": self.table.cellWidget(index, 3).value(),
                 "opacity": opacity_cell.findChild(QSlider).value(),
+                "gradient": self.table.cellWidget(index, 5).isChecked(),
+                "gradient_end": self.table.cellWidget(index, 6).currentData(),
             })
         return rows
 
@@ -294,7 +322,7 @@ class SettingsDialog(QDialog):
 
     def _add_phase(self) -> None:
         rows = self._snapshot()
-        rows.append({"name": "新しいフェーズ", "minutes": 5, "color": "sky", "font_size": DEFAULT_FONT_SIZE, "opacity": 100})
+        rows.append({"name": "新しいフェーズ", "minutes": 5, "color": "sky", "font_size": DEFAULT_FONT_SIZE, "opacity": 100, "gradient": True, "gradient_end": "violet"})
         self._render_rows(rows)
         self.table.scrollToBottom()
         self._notify_change(force_restart=True)
