@@ -35,6 +35,7 @@ from .geometry import tray_menu_position
 from .icons import clock_icon
 from .overlay import Overlay
 from .timer import (
+    COLOR_HEX,
     COLOR_PRESETS,
     DEFAULT_FONT_SIZE,
     MAX_FONT_SIZE,
@@ -170,7 +171,16 @@ class PhaseCard(QFrame):
         caption = QVBoxLayout()
         caption.setSpacing(2)
         caption.addWidget(self.title)
-        caption.addWidget(self.summary)
+        summary_row = QHBoxLayout()
+        summary_row.setSpacing(6)
+        self.main_swatch = QLabel(self)
+        self.main_swatch.setFixedSize(12, 12)
+        self.sub_swatch = QLabel(self)
+        self.sub_swatch.setFixedSize(12, 12)
+        summary_row.addWidget(self.main_swatch)
+        summary_row.addWidget(self.sub_swatch)
+        summary_row.addWidget(self.summary, 1)
+        caption.addLayout(summary_row)
         self.move_up = QToolButton(self)
         self.move_up.setText("↑")
         self.move_up.setToolTip("上へ移動")
@@ -330,6 +340,15 @@ class PhaseCard(QFrame):
         colors = dict((key, label) for key, label, _hex in COLOR_PRESETS)
         positions = dict((value, label) for label, value in POSITIONS)
         main = colors.get(self.color.currentData(), "?")
+        self.main_swatch.setStyleSheet(
+            f"background: {COLOR_HEX[self.color.currentData()]}; "
+            "border: 1px solid #7D8592; border-radius: 6px;"
+        )
+        self.sub_swatch.setStyleSheet(
+            f"background: {COLOR_HEX[self.gradient_end.currentData()]}; "
+            "border: 1px solid #7D8592; border-radius: 6px;"
+        )
+        self.sub_swatch.setVisible(self.gradient.isChecked())
         secondary = (
             f" → {colors.get(self.gradient_end.currentData(), '?')}"
             if self.gradient.isChecked() else ""
