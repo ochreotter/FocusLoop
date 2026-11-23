@@ -38,19 +38,19 @@ ENGLISH = {
     "最前面OFF": "Topmost OFF",
     "（名前未入力）": "(Unnamed phase)",
     "＋ フェーズを追加": "+ Add phase",
-    "設定は即時反映・保存されます。⠿をドラッグ、または↑↓で並べ替え。順番・分数の変更時は先頭から再スタートします。":
+    "設定は即時反映・保存されます。⠿をドラッグするか、↑↓で並べ替えられます。順番・分数を変更すると、先頭から再スタートします。":
         "Changes are saved immediately. Drag ⠿ or use ↑↓ to reorder. "
         "Changing phase order or duration restarts from the first phase.",
-    "ドラッグして順番を変更": "Drag to reorder phases",
-    "上へ移動": "Move up",
-    "下へ移動": "Move down",
-    "カードを開く／閉じる": "Expand / collapse card",
+    "ドラッグしてフェーズの順番を変更できます。": "Drag to reorder phases",
+    "フェーズを上に移動します。": "Move up",
+    "フェーズを下に移動します。": "Move down",
+    "フェーズの設定欄を開閉します。": "Expand / collapse card",
     "フェーズ設定の開閉": "Toggle phase settings",
     "グラデーション": "Gradient",
-    "このフェーズの間はタイマー表示だけを隠す":
+    "このフェーズ中はタイマー表示のみを非表示にします。":
         "Hide only the timer overlay during this phase",
-    "フェーズを削除（確認あり）": "Delete phase (confirmation required)",
-    "設定とタイマーをすべて初期値に戻す":
+    "フェーズを削除します。確認画面が表示されます。": "Delete phase (confirmation required)",
+    "設定とタイマーを初期値に戻します。":
         "Restore all phase settings and reset the timer",
     "フェーズは最低1つ必要です。": "At least one phase is required.",
     "この操作は取り消せません。": "This action cannot be undone.",
