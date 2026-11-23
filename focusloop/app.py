@@ -66,7 +66,7 @@ class Overlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.clock_text = "45:00"
+        self.clock_text = f"{phase.minutes:02d}:00"
         self.phase_config = phase
         self.font_size = font_size
         self.position_name = position
@@ -167,9 +167,9 @@ class SettingsDialog(QDialog):
         add_button.clicked.connect(self._add_phase)
 
         note = QLabel(
-            "上から順に自動でループするよ。"
-            "フェーズの順番・名前・分数を変えると、先頭から再スタートする。"
-            "色・透過率・位置・文字サイズだけの変更では時間をリセットしないよ。",
+            "上から順に自動で繰り返します。"
+            "フェーズの順番・名前・分数を変更すると、先頭から再スタートします。"
+            "色・透過率・位置・文字サイズのみの変更では時間をリセットしません。",
             self,
         )
         note.setWordWrap(True)
@@ -278,7 +278,7 @@ class SettingsDialog(QDialog):
 
     def _delete_row(self, editor: QWidget) -> None:
         if self.table.rowCount() <= 1:
-            QMessageBox.information(self, "FocusLoop", "フェーズは最低1つ必要だよ。")
+            QMessageBox.information(self, "FocusLoop", "フェーズは最低1つ必要です。")
             return
         row = self._row_for_editor(editor)
         if row >= 0:
@@ -304,7 +304,7 @@ class SettingsDialog(QDialog):
                 for row in self._snapshot()
             )
         except ValueError as error:
-            QMessageBox.warning(self, "FocusLoop", f"設定を確認してね：{error}")
+            QMessageBox.warning(self, "FocusLoop", f"設定内容をご確認ください：{error}")
             return
         super().accept()
 
@@ -376,7 +376,7 @@ class FocusLoopApp:
     def start(self) -> bool:
         if not QSystemTrayIcon.isSystemTrayAvailable():
             QMessageBox.critical(
-                None, "FocusLoop", "システムトレイが利用できないため起動できないよ。"
+                None, "FocusLoop", "システムトレイを利用できないため、起動できません。"
             )
             return False
         self.tray.show()
@@ -403,7 +403,7 @@ class FocusLoopApp:
             self.last_display = state
         if switched:
             self.tray.showMessage(
-                "FocusLoop", f"「{phase.name}」の時間だよ",
+                "FocusLoop", f"「{phase.name}」の時間になりました。",
                 QSystemTrayIcon.MessageIcon.Information, 4000
             )
 
