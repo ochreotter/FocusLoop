@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox, QPushButton, QSlider
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 
 from focusloop.app import FocusLoopApp, PhaseCard
 from focusloop.timer import COLOR_HEX, PhaseConfig, default_phases, phases_to_json
