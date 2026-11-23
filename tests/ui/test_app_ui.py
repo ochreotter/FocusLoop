@@ -495,7 +495,9 @@ class TabNavigationTests(unittest.TestCase):
         QTest.keyClicks(card.name, " X")
         self.assertTrue(card.name.text().endswith(" X"))
         old_simple = card.simple.isChecked()
-        QTest.mouseClick(card.simple, Qt.MouseButton.LeftButton)
+        # QWidget.click() checks that the normal button action remains active.
+        # A synthetic mouse event may miss a scrolled widget in Qt offscreen.
+        card.simple.click()
         self.assertNotEqual(card.simple.isChecked(), old_simple)
         self.assert_keyboard_navigation()
 
