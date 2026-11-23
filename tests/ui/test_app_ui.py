@@ -252,6 +252,48 @@ class CardSettingsTests(unittest.TestCase):
         self.assertEqual(calls, [True])
         self.assertTrue(self.dialog.isVisible())
 
+    def test_footer_groups_live_loop_resets_pause_and_settings_initialize(self):
+        """All persistent controls belong below the scrollable phase cards."""
+        root = self.dialog.layout()
+        self.assertIs(root.itemAt(0).widget(), self.dialog.scroll)
+        footer = root.itemAt(root.count() - 1).layout()
+        self.assertIsNotNone(footer)
+
+        buttons = [
+            footer.itemAt(i).widget()
+            for i in range(footer.count())
+            if footer.itemAt(i).widget() is not None
+        ]
+        self.assertEqual(
+            [w.text() if hasattr(w, "text") else "dialog_buttons" for w in buttons],
+            [
+                "LOOP 01",
+                "ループ数をリセット",
+                "現在のフェーズをリセット",
+                "一時停止",
+                "設定初期化",
+                "dialog_buttons",
+            ],
+        )
+        self.assertIs(buttons[0], self.dialog.loop_label)
+        self.assertIs(buttons[3], self.dialog.pause_button)
+        self.assertIs(buttons[4], self.dialog.findChild(QPushButton, "initialize_button"))
+        self.assertIsInstance(buttons[5], QDialogButtonBox)
+
+        # Relocating controls must not change their wiring or live status.
+        calls = []
+        self.dialog.loop_reset.connect(lambda: calls.append("loop"))
+        self.dialog.timer_reset.connect(lambda: calls.append("timer"))
+        self.dialog.pause_toggle.connect(lambda: calls.append("pause"))
+        buttons[1].click()
+        buttons[2].click()
+        buttons[3].click()
+        self.assertEqual(calls, ["loop", "timer", "pause"])
+        self.dialog.set_loop_number(12)
+        self.assertEqual(buttons[0].text(), "LOOP 12")
+        self.dialog.set_pause_state(True)
+        self.assertEqual(buttons[3].text(), "再開")
+
     def test_only_close_button_in_dialog_button_box(self):
         buttons = self.dialog.findChild(QDialogButtonBox)
         self.assertIsNone(buttons.button(QDialogButtonBox.StandardButton.Apply))
