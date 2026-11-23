@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from PySide6.QtCore import QPoint, QSize, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QMimeData, QPoint, QSize, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QDrag, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractButton,
@@ -13,19 +13,20 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
+    QScrollArea,
     QMessageBox,
     QPushButton,
     QSlider,
     QSpinBox,
     QSystemTrayIcon,
-    QTableWidget,
-    QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -35,7 +36,6 @@ from .icons import clock_icon
 from .overlay import Overlay
 from .timer import (
     COLOR_PRESETS,
-    DEFAULT_FONT_SIZE,
     MAX_FONT_SIZE,
     MIN_FONT_SIZE,
     FocusTimer,
@@ -107,8 +107,267 @@ def confirm_change(
     return message.exec() == QMessageBox.StandardButton.Yes
 
 
+class PhaseDragHandle(QToolButton):
+    """A dedicated drag target so editors remain clickable and selectable."""
+
+    def __init__(self, card: "PhaseCard") -> None:
+        super().__init__(card)
+        self.card = card
+        self.setText("⠿")
+        self.setToolTip("ドラッグして順番を変更")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._press_point: QPoint | None = None
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_point = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if (
+            self._press_point is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+            and (event.position().toPoint() - self._press_point).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            self._press_point = None
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setData("application/x-focusloop-phase", b"phase")
+            drag.setMimeData(mime)
+            drag.exec(Qt.DropAction.MoveAction)
+        else:
+            super().mouseMoveEvent(event)
+
+
+class PhaseCard(QFrame):
+    """An expandable, reorderable, two-column editor for a single phase."""
+
+    def __init__(self, owner: "SettingsDialog", values: dict) -> None:
+        super().__init__(owner.cards_container)
+        self.owner = owner
+        self.setObjectName("phase_card")
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setAcceptDrops(True)
+        self.setStyleSheet(
+            "QFrame#phase_card { border: 1px solid palette(mid); "
+            "border-radius: 8px; margin: 2px; }"
+        )
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 8, 12, 10)
+        outer.setSpacing(8)
+
+        header = QHBoxLayout()
+        self.drag_handle = PhaseDragHandle(self)
+        self.title = QLabel(self)
+        self.title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.summary = QLabel(self)
+        self.summary.setWordWrap(True)
+        self.summary.setStyleSheet("color: palette(mid);")
+        caption = QVBoxLayout()
+        caption.setSpacing(2)
+        caption.addWidget(self.title)
+        caption.addWidget(self.summary)
+        self.move_up = QToolButton(self)
+        self.move_up.setText("↑")
+        self.move_up.setToolTip("上へ移動")
+        self.move_down = QToolButton(self)
+        self.move_down.setText("↓")
+        self.move_down.setToolTip("下へ移動")
+        self.expand_button = QToolButton(self)
+        self.expand_button.setText("設定を開く")
+        self.expand_button.setCheckable(True)
+        self.expand_button.toggled.connect(self._toggle_expanded)
+        self.move_up.clicked.connect(lambda: owner._shift_card(self, -1))
+        self.move_down.clicked.connect(lambda: owner._shift_card(self, 1))
+        header.addWidget(self.drag_handle)
+        header.addLayout(caption, 1)
+        header.addWidget(self.move_up)
+        header.addWidget(self.move_down)
+        header.addWidget(self.expand_button)
+        outer.addLayout(header)
+
+        self.body = QWidget(self)
+        fields = QGridLayout(self.body)
+        fields.setContentsMargins(4, 4, 4, 4)
+        fields.setHorizontalSpacing(18)
+        fields.setVerticalSpacing(9)
+        fields.setColumnStretch(0, 1)
+        fields.setColumnStretch(1, 1)
+
+        def field(row: int, col: int, label: str, editor: QWidget) -> None:
+            area = QWidget(self.body)
+            column = QVBoxLayout(area)
+            column.setContentsMargins(0, 0, 0, 0)
+            column.setSpacing(3)
+            column.addWidget(QLabel(label, area))
+            column.addWidget(editor)
+            fields.addWidget(area, row, col)
+
+        self.name = QLineEdit(str(values["name"]), self.body)
+        self.name.setMaxLength(40)
+        self.name.setPlaceholderText("フェーズ名")
+        field(0, 0, "フェーズ名", self.name)
+
+        self.minutes = QSpinBox(self.body)
+        self.minutes.setRange(1, 240)
+        self.minutes.setSuffix(" 分")
+        self.minutes.setValue(int(values["minutes"]))
+        field(0, 1, "時間", self.minutes)
+
+        self.color = color_combo(self.body, values["color"])
+        field(1, 0, "メイン色", self.color)
+
+        secondary = QWidget(self.body)
+        secondary_layout = QHBoxLayout(secondary)
+        secondary_layout.setContentsMargins(0, 0, 0, 0)
+        self.gradient = QCheckBox("ON", secondary)
+        self.gradient.setToolTip("グラデーション")
+        self.gradient.setChecked(bool(values["gradient"]))
+        self.gradient_end = color_combo(secondary, values["gradient_end"])
+        self.gradient_end.setEnabled(self.gradient.isChecked())
+        self.gradient.toggled.connect(self.gradient_end.setEnabled)
+        secondary_layout.addWidget(self.gradient)
+        secondary_layout.addWidget(self.gradient_end, 1)
+        field(1, 1, "サブ色・グラデーション", secondary)
+
+        self.size = QSlider(Qt.Orientation.Horizontal, self.body)
+        self.size.setRange(MIN_FONT_SIZE, MAX_FONT_SIZE)
+        self.size.setSingleStep(1)
+        self.size.setPageStep(10)
+        self.size.setValue(int(values["font_size"]))
+        self.size_label = QLabel(f"{self.size.value()} pt", self.body)
+        size_row = QWidget(self.body)
+        size_layout = QHBoxLayout(size_row)
+        size_layout.setContentsMargins(0, 0, 0, 0)
+        size_layout.addWidget(self.size, 1)
+        size_layout.addWidget(self.size_label)
+        field(2, 0, "サイズ", size_row)
+
+        self.opacity = QSlider(Qt.Orientation.Horizontal, self.body)
+        self.opacity.setRange(0, 100)
+        self.opacity.setSingleStep(1)
+        self.opacity.setValue(int(values["opacity"]))
+        self.opacity_label = QLabel(f"{self.opacity.value()}%", self.body)
+        opacity_row = QWidget(self.body)
+        opacity_layout = QHBoxLayout(opacity_row)
+        opacity_layout.setContentsMargins(0, 0, 0, 0)
+        opacity_layout.addWidget(self.opacity, 1)
+        opacity_layout.addWidget(self.opacity_label)
+        field(2, 1, "透過率", opacity_row)
+
+        self.simple = QCheckBox("Simple（OFFで標準表示）", self.body)
+        self.simple.setChecked(bool(values["simple"]))
+        field(3, 0, "表示モード", self.simple)
+
+        self.topmost = QCheckBox("最前面に表示", self.body)
+        self.topmost.setChecked(bool(values["topmost"]))
+        field(3, 1, "ウィンドウ", self.topmost)
+
+        self.position = QComboBox(self.body)
+        for label, value in POSITIONS:
+            self.position.addItem(label, value)
+        self.position.setCurrentIndex(max(0, self.position.findData(values["position"])))
+        field(4, 0, "表示位置", self.position)
+
+        delete_area = QWidget(self.body)
+        delete_layout = QHBoxLayout(delete_area)
+        delete_layout.setContentsMargins(0, 0, 0, 0)
+        delete_layout.addStretch()
+        self.delete_button = QPushButton("削除", delete_area)
+        self.delete_button.setFixedSize(54, 26)
+        self.delete_button.setStyleSheet(
+            "QPushButton { background-color: #F9EAEC; color: #964650; "
+            "border: 1px solid #DDB9BE; border-radius: 5px; "
+            "padding: 0; font-weight: 500; } "
+            "QPushButton:hover { background-color: #F3DBDF; color: #853942; } "
+            "QPushButton:pressed { background-color: #EBC9CE; }"
+        )
+        self.delete_button.setToolTip("フェーズを削除（確認あり）")
+        self.delete_button.clicked.connect(lambda: owner._confirm_delete_card(self))
+        delete_layout.addWidget(self.delete_button)
+        field(4, 1, "フェーズ操作", delete_area)
+
+        outer.addWidget(self.body)
+        self.body.hide()
+        for widget in (
+            self.name, self.minutes, self.color, self.gradient, self.gradient_end,
+            self.size, self.opacity, self.simple, self.position, self.topmost,
+        ):
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._changed)
+            elif isinstance(widget, QCheckBox):
+                widget.toggled.connect(self._changed)
+            elif isinstance(widget, (QSlider, QSpinBox)):
+                widget.valueChanged.connect(self._changed)
+            else:
+                widget.currentIndexChanged.connect(self._changed)
+        self.size.valueChanged.connect(lambda v: self.size_label.setText(f"{v} pt"))
+        self.opacity.valueChanged.connect(
+            lambda v: self.opacity_label.setText(f"{v}%")
+        )
+        self._refresh_summary()
+
+    def snapshot(self) -> dict:
+        return {
+            "name": self.name.text(),
+            "minutes": self.minutes.value(),
+            "color": self.color.currentData(),
+            "gradient": self.gradient.isChecked(),
+            "gradient_end": self.gradient_end.currentData(),
+            "font_size": self.size.value(),
+            "opacity": self.opacity.value(),
+            "simple": self.simple.isChecked(),
+            "position": self.position.currentData(),
+            "topmost": self.topmost.isChecked(),
+        }
+
+    def _refresh_summary(self) -> None:
+        self.title.setText(self.name.text() or "（名前未入力）")
+        colors = dict((key, label) for key, label, _hex in COLOR_PRESETS)
+        positions = dict((value, label) for label, value in POSITIONS)
+        main = colors.get(self.color.currentData(), "?")
+        secondary = (
+            f" → {colors.get(self.gradient_end.currentData(), '?')}"
+            if self.gradient.isChecked() else ""
+        )
+        mode = "Simple" if self.simple.isChecked() else "標準"
+        front = "最前面ON" if self.topmost.isChecked() else "最前面OFF"
+        self.summary.setText(
+            f"{self.minutes.value()}分 · {main}{secondary} · "
+            f"{mode} · {positions.get(self.position.currentData(), '?')} · {front}"
+        )
+
+    def _changed(self, *_args) -> None:
+        self._refresh_summary()
+        self.owner._notify_change()
+
+    def _toggle_expanded(self, enabled: bool) -> None:
+        self.body.setVisible(enabled)
+        self.expand_button.setText("閉じる" if enabled else "設定を開く")
+        if enabled:
+            self.owner._expand_card(self)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if event.mimeData().hasFormat("application/x-focusloop-phase"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 - Qt API
+        source = event.source()
+        if isinstance(source, PhaseDragHandle) and source.card is not self:
+            self.owner._reorder_cards(source.card, self)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+
 class SettingsDialog(QDialog):
-    """Edit all phases, including order, text color and per-phase opacity."""
+    """Modeless settings with a scrollable accordion instead of a wide table."""
 
     changed = Signal(object, bool)
     loop_reset = Signal()
@@ -118,313 +377,164 @@ class SettingsDialog(QDialog):
     def __init__(self, parent, timer: FocusTimer) -> None:
         super().__init__(parent)
         self.setWindowTitle("FocusLoop - 設定")
-        self.setMinimumWidth(1310)
-        self.setMinimumHeight(450)
+        self.resize(850, 690)
+        self.setMinimumSize(660, 440)
         self.result_phases: tuple[PhaseConfig, ...] | None = None
+        self._rendering = False
         self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
-        reset_loop_button = QPushButton("ループ数をリセット", self)
-        reset_loop_button.clicked.connect(lambda _checked=False: self.loop_reset.emit())
+        loop_reset = QPushButton("ループ数をリセット", self)
+        loop_reset.clicked.connect(lambda: self.loop_reset.emit())
+        timer_reset = QPushButton("現在のフェーズをリセット", self)
+        timer_reset.clicked.connect(lambda: self.timer_reset.emit())
 
-        loop_row = QHBoxLayout()
-        loop_row.addWidget(self.loop_label)
-        loop_row.addWidget(reset_loop_button)
-        loop_row.addStretch()
+        top = QHBoxLayout()
+        top.addWidget(self.loop_label)
+        top.addWidget(loop_reset)
+        top.addStretch()
+        top.addWidget(timer_reset)
 
-        form = QFormLayout()
-        form.addRow("ループ数", loop_row)
-
-        reset_timer_button = QPushButton("現在のフェーズをリセット", self)
-        reset_timer_button.clicked.connect(lambda _checked=False: self.timer_reset.emit())
-        form.addRow("タイマー", reset_timer_button)
-
-        self.table = QTableWidget(0, 9, self)
-        self.table.setHorizontalHeaderLabels((
-            "フェーズ名", "時間", "メイン色", "サブ色・グラデーション",
-            "サイズ", "透過率", "Simple", "表示位置", "削除",
-        ))
-        handle = self.table.verticalHeader()
-        handle.show()
-        handle.setFixedWidth(44)
-        handle.setSectionsMovable(True)
-        handle.setHighlightSections(False)
-        handle.sectionMoved.connect(self._on_row_reordered)
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
-        self._render_rows([asdict(phase) for phase in timer.phases])
+        self.cards_container = QWidget(self)
+        self.cards_layout = QVBoxLayout(self.cards_container)
+        self.cards_layout.setContentsMargins(5, 5, 5, 5)
+        self.cards_layout.setSpacing(9)
+        self.cards_layout.addStretch()
+        self.cards: list[PhaseCard] = []
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setWidget(self.cards_container)
+        self._render_cards([asdict(phase) for phase in timer.phases], timer.phase_index)
 
         add_button = QPushButton("＋ フェーズを追加", self)
         add_button.clicked.connect(self._add_phase)
-
         note = QLabel(
-            "設定は変更と同時に反映・保存されます。"
-            "左端の「⠿」をドラッグして順番を変更できます。"
-            "フェーズの順番・分数を変更すると、先頭から再スタートします。"
-            "名前・色・透過率・Simple・グラデーション・位置・サイズの変更では時間をリセットしません。"
-            "「閉じる」を押しても設定は保持されます。",
+            "設定は即時反映・保存されます。⠿をドラッグ、または↑↓で並べ替え。"
+            "順番・分数の変更時は先頭から再スタートします。",
             self,
         )
         note.setWordWrap(True)
 
+        initialize = QPushButton("初期化", self)
+        initialize.setObjectName("initialize_button")
+        initialize.setToolTip("設定とタイマーをすべて初期値に戻す")
+        initialize.clicked.connect(self._confirm_initialize)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("閉じる")
         buttons.rejected.connect(self.reject)
-
-        initialize_button = QPushButton("初期化", self)
-        initialize_button.setObjectName("initialize_button")
-        initialize_button.setToolTip("設定とタイマーをすべて初期値に戻す")
-        initialize_button.clicked.connect(self._confirm_initialize)
         footer = QHBoxLayout()
-        footer.addWidget(initialize_button)
+        footer.addWidget(initialize)
         footer.addStretch()
         footer.addWidget(buttons)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addWidget(self.table)
+        layout.addLayout(top)
+        layout.addWidget(self.scroll, 1)
         layout.addWidget(add_button)
         layout.addWidget(note)
         layout.addLayout(footer)
         self._set_button_cursors()
 
-    def _render_rows(self, rows: list[dict]) -> None:
-        # Row rebuilds initialize widgets and must not trigger partial saves.
+    def _render_cards(self, rows: list[dict], expanded_index: int = 0) -> None:
         self._rendering = True
-        self.table.setUpdatesEnabled(False)
         try:
-            self.table.setRowCount(0)
-            for row in rows:
-                self._add_row(row)
+            for card in self.cards:
+                self.cards_layout.removeWidget(card)
+                card.setParent(None)
+                card.deleteLater()
+            self.cards = []
+            for i, row in enumerate(rows):
+                card = PhaseCard(self, row)
+                self.cards.append(card)
+                self.cards_layout.insertWidget(i, card)
+                card.show()
+            if self.cards:
+                self.cards[max(0, min(expanded_index, len(self.cards) - 1))].expand_button.setChecked(True)
+            self._update_move_buttons()
         finally:
-            self.table.setUpdatesEnabled(True)
             self._rendering = False
             self._set_button_cursors()
 
     def _set_button_cursors(self) -> None:
-        """Show that buttons and checkboxes are clickable, including dynamic rows."""
         for button in self.findChildren(QAbstractButton):
             button.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def _add_row(self, phase: dict) -> None:
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self.table.setRowHeight(row, 44)
-        self.table.setVerticalHeaderItem(row, QTableWidgetItem("⠿"))
+    def _expand_card(self, selected: PhaseCard) -> None:
+        for card in self.cards:
+            if card is not selected and card.expand_button.isChecked():
+                card.expand_button.setChecked(False)
 
-        name = QLineEdit(str(phase["name"]), self.table)
-        name.setMaxLength(40)
-        name.setPlaceholderText("フェーズ名")
-        self.table.setCellWidget(row, 0, name)
+    def _update_move_buttons(self) -> None:
+        for i, card in enumerate(self.cards):
+            card.move_up.setEnabled(i > 0)
+            card.move_down.setEnabled(i < len(self.cards) - 1)
 
-        minutes = QSpinBox(self.table)
-        minutes.setRange(1, 240)
-        minutes.setSuffix(" 分")
-        minutes.setValue(int(phase["minutes"]))
-        self.table.setCellWidget(row, 1, minutes)
+    def _reorder_cards(self, source: PhaseCard, target: PhaseCard) -> None:
+        if source is target or source not in self.cards or target not in self.cards:
+            return
+        self.cards.remove(source)
+        self.cards.insert(self.cards.index(target), source)
+        self.cards_layout.removeWidget(source)
+        self.cards_layout.insertWidget(self.cards.index(source), source)
+        self._update_move_buttons()
+        self._notify_change(force_restart=True)
 
-        color = color_combo(self.table, phase["color"])
-        self.table.setCellWidget(row, 2, color)
-
-        sub_cell = QWidget(self.table)
-        sub_layout = QHBoxLayout(sub_cell)
-        sub_layout.setContentsMargins(4, 0, 4, 0)
-        gradient = QCheckBox("ON", sub_cell)
-        gradient.setToolTip("グラデーション")
-        gradient.setChecked(bool(phase["gradient"]))
-        gradient_end = color_combo(sub_cell, phase["gradient_end"])
-        gradient_end.setEnabled(gradient.isChecked())
-        gradient.toggled.connect(gradient_end.setEnabled)
-        sub_layout.addWidget(gradient)
-        sub_layout.addWidget(gradient_end, 1)
-        self.table.setCellWidget(row, 3, sub_cell)
-
-        size_cell = QWidget(self.table)
-        size_layout = QHBoxLayout(size_cell)
-        size_layout.setContentsMargins(4, 0, 4, 0)
-        font_size = QSlider(Qt.Orientation.Horizontal, size_cell)
-        font_size.setRange(MIN_FONT_SIZE, MAX_FONT_SIZE)
-        font_size.setSingleStep(1)
-        font_size.setPageStep(10)
-        font_size.setValue(int(phase["font_size"]))
-        font_size_label = QLabel(f"{font_size.value()} pt", size_cell)
-        font_size_label.setMinimumWidth(52)
-        font_size.valueChanged.connect(
-            lambda value, label=font_size_label: label.setText(f"{value} pt")
-        )
-        font_size.valueChanged.connect(lambda _value: self._notify_change())
-        size_layout.addWidget(font_size)
-        size_layout.addWidget(font_size_label)
-        self.table.setCellWidget(row, 4, size_cell)
-
-        opacity_cell = QWidget(self.table)
-        opacity_layout = QHBoxLayout(opacity_cell)
-        opacity_layout.setContentsMargins(4, 0, 4, 0)
-        opacity = QSlider(Qt.Orientation.Horizontal, opacity_cell)
-        opacity.setRange(0, 100)
-        opacity.setSingleStep(1)
-        opacity.setValue(int(phase["opacity"]))
-        opacity_label = QLabel(f"{opacity.value()}%", opacity_cell)
-        opacity_label.setMinimumWidth(38)
-        opacity.valueChanged.connect(lambda value, label=opacity_label: label.setText(f"{value}%"))
-        opacity_layout.addWidget(opacity)
-        opacity_layout.addWidget(opacity_label)
-        self.table.setCellWidget(row, 5, opacity_cell)
-
-        simple = QCheckBox("Simple", self.table)
-        simple.setChecked(bool(phase["simple"]))
-        self.table.setCellWidget(row, 6, simple)
-
-        position = QComboBox(self.table)
-        for label, value in POSITIONS:
-            position.addItem(label, value)
-        position.setCurrentIndex(max(0, position.findData(phase["position"])))
-        self.table.setCellWidget(row, 7, position)
-
-        # Use an inner wrapper so the button never fills/overflows its table cell.
-        delete_cell = QWidget(self.table)
-        delete_layout = QHBoxLayout(delete_cell)
-        delete_layout.setContentsMargins(5, 3, 5, 3)
-        delete_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        delete = QPushButton("削除", delete_cell)
-        delete.setToolTip("削除（最低1フェーズは必要）")
-        delete.setFixedSize(54, 26)
-        delete.setStyleSheet(
-            "QPushButton { background-color: #F9EAEC; color: #964650; "
-            "border: 1px solid #DDB9BE; border-radius: 5px; "
-            "padding: 0; font-weight: 500; } "
-            "QPushButton:hover { background-color: #F3DBDF; color: #853942; } "
-            "QPushButton:pressed { background-color: #EBC9CE; }"
-        )
-        delete.clicked.connect(lambda checked=False, editor=name: self._confirm_delete_row(editor))
-        delete_layout.addWidget(delete)
-        self.table.setCellWidget(row, 8, delete_cell)
-
-        name.textChanged.connect(lambda _text: self._notify_change())
-        minutes.valueChanged.connect(lambda _value: self._notify_change())
-        color.currentIndexChanged.connect(lambda _index: self._notify_change())
-        gradient.toggled.connect(lambda _value: self._notify_change())
-        gradient_end.currentIndexChanged.connect(lambda _value: self._notify_change())
-        opacity.valueChanged.connect(lambda _value: self._notify_change())
-        simple.toggled.connect(lambda _checked: self._notify_change())
-        position.currentIndexChanged.connect(lambda _index: self._notify_change())
-
-    def _confirm_initialize(self) -> None:
-        if confirm_change(
-            self, "FocusLoop - 初期化", "すべての設定を初期化しますか？",
-            "フェーズ・色・サイズ・表示位置・表示スタイル・ループ数を初期値に戻し、"
-            "作業45:00からタイマーを再開します。この操作は取り消せません。",
-            "初期化する",
-        ):
-            self.initialize_requested.emit()
-
-    def restore_defaults(
-        self, phases: tuple[PhaseConfig, ...], loop_number: int
-    ) -> None:
-        """Rebuild all phase editors from defaults without emitting partial changes."""
-        self._render_rows([asdict(phase) for phase in phases])
-        self.result_phases = phases
-        self.set_loop_number(loop_number)
-
-    def set_loop_number(self, number: int) -> None:
-        self.loop_label.setText(f"LOOP {number:02d}")
+    def _shift_card(self, card: PhaseCard, offset: int) -> None:
+        index = self.cards.index(card)
+        next_index = index + offset
+        if 0 <= next_index < len(self.cards):
+            self._reorder_cards(card, self.cards[next_index])
 
     def _notify_change(self, force_restart: bool = False) -> None:
         if self._rendering:
             return
         try:
             phases = tuple(
-                PhaseConfig(
-                    name=row["name"].strip(),
-                    minutes=row["minutes"],
-                    color=row["color"],
-                    opacity=row["opacity"],
-                    font_size=row["font_size"],
-                    gradient=row["gradient"],
-                    gradient_end=row["gradient_end"],
-                    simple=row["simple"],
-                    position=row["position"],
-                )
-                for row in self._snapshot()
+                PhaseConfig(**{**card.snapshot(), "name": card.name.text().strip()})
+                for card in self.cards
             )
         except ValueError:
-            # A name can temporarily be empty while typing. Resume as soon as
-            # the input is valid, without interrupting the user with a dialog.
             return
-
         if force_restart or phases != self.result_phases:
             self.result_phases = phases
             self.changed.emit(self, force_restart)
 
-    def _snapshot(self) -> list[dict]:
-        """Read phases in their current visible order (which may be dragged)."""
-        rows = []
-        header = self.table.verticalHeader()
-        for visual in range(self.table.rowCount()):
-            index = header.logicalIndex(visual)
-            opacity_cell = self.table.cellWidget(index, 5)
-            rows.append({
-                "name": self.table.cellWidget(index, 0).text(),
-                "minutes": self.table.cellWidget(index, 1).value(),
-                "color": self.table.cellWidget(index, 2).currentData(),
-                "font_size": self.table.cellWidget(index, 4).findChild(QSlider).value(),
-                "opacity": opacity_cell.findChild(QSlider).value(),
-                "gradient": self.table.cellWidget(index, 3).findChild(QCheckBox).isChecked(),
-                "gradient_end": self.table.cellWidget(index, 3).findChild(QComboBox).currentData(),
-                "simple": self.table.cellWidget(index, 6).isChecked(),
-                "position": self.table.cellWidget(index, 7).currentData(),
-            })
-        return rows
-
-    def _on_row_reordered(self, logical: int, old_visual: int, new_visual: int) -> None:
-        if not self._rendering:
-            self._notify_change(force_restart=True)
-
-    def _row_for_editor(self, editor: QWidget) -> int:
-        for index in range(self.table.rowCount()):
-            if self.table.cellWidget(index, 0) is editor:
-                return index
-        return -1
-
-    def _confirm_delete_row(self, editor: QWidget) -> None:
-        """Ask before removing a phase; Cancel/escape leaves all settings intact."""
-        row = self._row_for_editor(editor)
-        if row < 0:
-            return
-        if self.table.rowCount() <= 1:
+    def _confirm_delete_card(self, card: PhaseCard) -> None:
+        if len(self.cards) <= 1:
             QMessageBox.information(self, "FocusLoop", "フェーズは最低1つ必要です。")
             return
-
         if confirm_change(
-            self, "FocusLoop - フェーズ削除", f"「{editor.text()}」を削除しますか？",
+            self, "FocusLoop - フェーズ削除",
+            f"「{card.name.text()}」を削除しますか？",
             "この操作は取り消せません。", "削除する",
         ):
-            self._delete_row(editor)
-
-    def _delete_row(self, editor: QWidget) -> None:
-        if self.table.rowCount() <= 1:
-            QMessageBox.information(self, "FocusLoop", "フェーズは最低1つ必要です。")
-            return
-        row = self._row_for_editor(editor)
-        if row >= 0:
-            rows = self._snapshot()
-            visible_index = self.table.verticalHeader().visualIndex(row)
-            rows.pop(visible_index)
-            self._render_rows(rows)
+            rows = [other.snapshot() for other in self.cards if other is not card]
+            self._render_cards(rows)
             self._notify_change(force_restart=True)
 
     def _add_phase(self) -> None:
-        rows = self._snapshot()
+        rows = [card.snapshot() for card in self.cards]
         rows.append(asdict(PhaseConfig("新しいフェーズ", 5, color="sky")))
-        self._render_rows(rows)
-        self.table.scrollToBottom()
+        self._render_cards(rows, len(rows) - 1)
         self._notify_change(force_restart=True)
+        self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
+
+    def _confirm_initialize(self) -> None:
+        if confirm_change(
+            self, "FocusLoop - 初期化", "すべての設定を初期化しますか？",
+            "フェーズ・色・サイズ・表示位置・表示モード・最前面・ループ数を初期値に戻し、"
+            "作業45:00からタイマーを再開します。この操作は取り消せません。",
+            "初期化する",
+        ):
+            self.initialize_requested.emit()
+
+    def restore_defaults(self, phases: tuple[PhaseConfig, ...], loop_number: int) -> None:
+        self._render_cards([asdict(phase) for phase in phases])
+        self.result_phases = phases
+        self.set_loop_number(loop_number)
+
+    def set_loop_number(self, number: int) -> None:
+        self.loop_label.setText(f"LOOP {number:02d}")
+
 
 
 class FocusLoopApp:
