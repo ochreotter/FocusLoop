@@ -42,11 +42,11 @@ jobs:
           fail_on_unmatched_files: true
           files: dist/FocusLoop-Windows.zip
           body: |
-            Windows版はフォルダー形式のZIPです。DLLと一緒に展開し、FocusLoop/FocusLoop.exeを実行してください。
+            FocusLoop のWindows版です。FocusLoop-Windows.zipをダウンロードし、
+            ZIP内のFocusLoopフォルダーを展開してFocusLoop.exeを起動してください。
+            EXEと同じフォルダー内のDLLなどは削除・移動しないでください。
 
-            ライセンス情報とQt/PySide6ライブラリの差し替え方法はZIP内の
-            THIRD_PARTY_NOTICES.md、LIBRARY_REPLACEMENT.md、licenses/を参照してください。
-
-            **公開前チェック（メンテナー用）**: 使用バージョンのQt/PySide6対応ソースの
-            配布方法と第三者ライセンスを確認し、DLL差し替えを実機で検証してください。
-            詳細は docs/releasing.md。確認が終わるまでこのReleaseはドラフトのままにしてください。
+            アプリ本体はMITライセンスです。PySide6/Qtなど同梱ライブラリの
+            著作権・ライセンス情報と差し替え方法はZIP内の
+            LICENSE、THIRD_PARTY_NOTICES.md、LIBRARY_REPLACEMENT.md、
+            licenses/をご覧ください。
