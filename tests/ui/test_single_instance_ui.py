@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -47,6 +51,46 @@ class SingleInstanceTests(unittest.TestCase):
         self.app.processEvents()
         return bool(test())
 
+    def launch_secondary_process(self) -> None:
+        """Exercise the actual cross-process Windows named-pipe activation."""
+        child = """
+import sys
+from pathlib import Path
+from PySide6.QtWidgets import QApplication
+from focusloop.single_instance import SingleInstance
+app = QApplication([])
+app.setApplicationName("FocusLoop")
+app.setOrganizationName("FocusLoop")
+guard = SingleInstance(Path(sys.argv[1]))
+if guard.acquire():
+    guard.release()
+    raise SystemExit("unexpected second lock")
+if not guard.notify_existing(timeout_seconds=4.0):
+    raise SystemExit("could not notify the original process")
+"""
+        env = os.environ.copy()
+        env["QT_QPA_PLATFORM"] = "offscreen"
+        runner = subprocess.Popen(
+            [sys.executable, "-c", child, str(self.path)],
+            cwd=str(Path(__file__).resolve().parents[2]),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + 12.0
+        while runner.poll() is None and time.monotonic() < deadline:
+            self.app.processEvents()
+            QTest.qWait(20)
+        if runner.poll() is None:
+            runner.kill()
+        stdout, stderr = runner.communicate(timeout=3)
+        self.assertEqual(
+            runner.returncode, 0,
+            f"Second process failed (exit {runner.returncode}): {stdout} {stderr}",
+        )
+        self.app.processEvents()
+
     def test_second_launch_sends_activation_without_taking_lock(self) -> None:
         original = self.guard()
         self.assertTrue(original.acquire())
@@ -56,13 +100,13 @@ class SingleInstanceTests(unittest.TestCase):
 
         second = self.guard()
         self.assertFalse(second.acquire())
-        self.assertTrue(second.notify_existing())
+        self.launch_secondary_process()
         self.assertTrue(self.wait_until(lambda: len(activations) == 1))
         self.assertEqual(activations, ["activate"])
 
         third = self.guard()
         self.assertFalse(third.acquire())
-        self.assertTrue(third.notify_existing())
+        self.launch_secondary_process()
         self.assertTrue(self.wait_until(lambda: len(activations) == 2))
         self.assertEqual(activations, ["activate", "activate"])
 
@@ -80,7 +124,7 @@ class SingleInstanceTests(unittest.TestCase):
                 original.activate_requested.connect(controller.show_settings)
                 first = self.guard()
                 self.assertFalse(first.acquire())
-                self.assertTrue(first.notify_existing())
+                self.launch_secondary_process()
                 self.assertTrue(self.wait_until(lambda: controller.settings_dialog is not None))
                 dialog = controller.settings_dialog
                 before = (
@@ -90,7 +134,7 @@ class SingleInstanceTests(unittest.TestCase):
                 )
                 second = self.guard()
                 self.assertFalse(second.acquire())
-                self.assertTrue(second.notify_existing())
+                self.launch_secondary_process()
                 self.assertTrue(self.wait_until(lambda: controller.settings_dialog is dialog))
                 after = (
                     controller.timer_model.phase_index,
