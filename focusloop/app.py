@@ -364,7 +364,7 @@ class FocusLoopApp:
         self.reset_action.triggered.connect(self.reset)
         self.menu.addSeparator()
 
-        settings_action = self.menu.addAction("フェーズ・表示の設定…")
+        settings_action = self.menu.addAction("設定")
         settings_action.triggered.connect(self.show_settings)
         self.menu.addSeparator()
         quit_action = self.menu.addAction("終了")
