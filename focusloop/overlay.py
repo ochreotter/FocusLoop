@@ -132,10 +132,16 @@ class Overlay(QWidget):
         repositioned = phase.position != self.position_name
         topmost_changed = phase.topmost != self.phase_config.topmost
         changed = (
-            (text, phase, remaining_ratio, loop_number)
-            != (self.clock_text, self.phase_config, self.remaining_ratio, self.loop_number)
+            (text, phase, loop_number)
+            != (self.clock_text, self.phase_config, self.loop_number)
+            or (
+                style == "modern"
+                and remaining_arc_angles(remaining_ratio)
+                != remaining_arc_angles(self.remaining_ratio)
+            )
         )
         if not changed:
+            self.remaining_ratio = remaining_ratio
             return
         self.clock_text = text
         self.phase_config = phase
@@ -153,6 +159,14 @@ class Overlay(QWidget):
         else:
             if repositioned:
                 self.reposition()
+            self.update()
+
+    def set_ring_progress(self, remaining_ratio: float) -> None:
+        """Repaint only when the visible Qt arc angle changes, not every frame."""
+        remaining_ratio = max(0.0, min(1.0, remaining_ratio))
+        previous = remaining_arc_angles(self.remaining_ratio)
+        self.remaining_ratio = remaining_ratio
+        if self.display_style == "modern" and remaining_arc_angles(remaining_ratio) != previous:
             self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
