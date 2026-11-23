@@ -255,7 +255,9 @@ class CardSettingsTests(unittest.TestCase):
     def test_footer_groups_live_loop_resets_pause_and_settings_initialize(self):
         """All persistent controls belong below the scrollable phase cards."""
         root = self.dialog.layout()
-        self.assertIs(root.itemAt(0).widget(), self.dialog.scroll)
+        self.assertIs(root.itemAt(1).widget(), self.dialog.scroll)
+        self.assertIs(root.itemAt(0).layout().itemAt(1).widget(),
+                      self.dialog.language_combo)
         footer = root.itemAt(root.count() - 1).layout()
         self.assertIsNotNone(footer)
 
