@@ -238,8 +238,12 @@ catch {
                 Rename-Item -LiteralPath $TargetDir -NewName (Split-Path -Leaf $failed)
             }
             Rename-Item -LiteralPath $backup -NewName $name
-            Start-Process -FilePath (Join-Path $TargetDir 'FocusLoop.exe') -WorkingDirectory $TargetDir
             Write-UpdateLog 'Previous installation restored'
+            try {
+                Start-Process -FilePath (Join-Path $TargetDir 'FocusLoop.exe') -WorkingDirectory $TargetDir
+            } catch {
+                Write-UpdateLog "Previous version restored but could not be restarted: $_"
+            }
         }
         catch { Write-UpdateLog "Rollback failed: $_ (backup: $backup)" }
     }
