@@ -141,21 +141,20 @@ class LocalizedAppTests(unittest.TestCase):
         dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("en"))
         seen = []
 
-        def observe(message):
-            seen.append((message.windowTitle(), message.text(),
-                         message.informativeText(),
-                         message.button(QMessageBox.StandardButton.Cancel).text()))
-            return QMessageBox.StandardButton.Cancel
+        def observe(*args):
+            seen.append(args)
+            return False
 
-        with patch.object(QMessageBox, "exec", autospec=True, side_effect=observe):
+        with patch("focusloop.app.confirm_change", side_effect=observe):
             dialog.initialize_button.click()
             dialog.cards[0].delete_button.click()
         self.assertEqual(len(seen), 2)
-        self.assertIn("Reset settings", seen[0][0])
-        self.assertEqual(seen[0][1], "Reset all settings?")
-        self.assertIn("Working 45:00", seen[0][2])
-        self.assertEqual(seen[0][3], "Cancel")
-        self.assertIn('Delete "Working"?', seen[1][1])
+        self.assertIn("Reset settings", seen[0][1])
+        self.assertEqual(seen[0][2], "Reset all settings?")
+        self.assertIn("Working 45:00", seen[0][3])
+        self.assertEqual(seen[0][-1], "en")
+        self.assertIn('Delete "Working"?', seen[1][2])
+        self.assertEqual(seen[1][-1], "en")
         self.assertEqual(len(dialog.cards), 2)
 
         self.controller.tray = Mock()
