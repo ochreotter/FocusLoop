@@ -31,6 +31,9 @@ from .icons import clock_icon
 from .timer import (
     COLOR_HEX,
     COLOR_PRESETS,
+    DEFAULT_FONT_SIZE,
+    MAX_FONT_SIZE,
+    MIN_FONT_SIZE,
     FocusTimer,
     PhaseConfig,
     phases_from_json,
@@ -56,7 +59,7 @@ def _int_setting(settings: QSettings, key: str, default: int, minimum: int, maxi
 class Overlay(QWidget):
     """Only the countdown digits are painted; mouse input passes through."""
 
-    def __init__(self, font_size: int, position: str, phase: PhaseConfig) -> None:
+    def __init__(self, position: str, phase: PhaseConfig) -> None:
         super().__init__()
         flags = (
             Qt.WindowType.FramelessWindowHint
@@ -71,15 +74,38 @@ class Overlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.clock_text = f"{phase.minutes:02d}:00"
         self.phase_config = phase
-        self.font_size = font_size
+        self._render_font_size = phase.font_size
         self.position_name = position
         self._resize_and_reposition()
 
     def _resize_and_reposition(self) -> None:
-        font = QFont("Consolas", self.font_size)
-        font.setBold(True)
-        metrics = QFontMetrics(font)
-        self.setFixedSize(metrics.horizontalAdvance("000:00") + 30, metrics.height() + 26)
+        """Keep large clock digits visible inside the usable screen area."""
+        screen = QGuiApplication.primaryScreen()
+        margin = 24
+        area = screen.availableGeometry() if screen is not None else None
+        max_width = max(1, area.width() - margin * 2) if area else None
+        max_height = max(1, area.height() - margin * 2) if area else None
+
+        size = self.phase_config.font_size
+        while True:
+            font = QFont("Consolas", size)
+            font.setBold(True)
+            metrics = QFontMetrics(font)
+            width = metrics.horizontalAdvance("000:00") + 30
+            height = metrics.height() + 26
+            if (
+                size <= MIN_FONT_SIZE
+                or max_width is None
+                or (width <= max_width and height <= max_height)
+            ):
+                break
+            size -= 1
+
+        self._render_font_size = size
+        self.setFixedSize(
+            min(width, max_width) if max_width is not None else width,
+            min(height, max_height) if max_height is not None else height,
+        )
         self.reposition()
         self.update()
 
@@ -97,20 +123,24 @@ class Overlay(QWidget):
 
     def set_clock(self, text: str, phase: PhaseConfig) -> None:
         if (text, phase) != (self.clock_text, self.phase_config):
+            needs_resize = phase.font_size != self.phase_config.font_size
             self.clock_text = text
             self.phase_config = phase
-            self.update()
+            if needs_resize:
+                self._resize_and_reposition()
+            else:
+                self.update()
 
-    def apply_appearance(self, font_size: int, position: str) -> None:
-        self.font_size = font_size
+    def apply_appearance(self, position: str) -> None:
         self.position_name = position
-        self._resize_and_reposition()
+        self.reposition()
+        self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        font = QFont("Consolas", self.font_size)
+        font = QFont("Consolas", self._render_font_size)
         font.setBold(True)
         painter.setFont(font)
         alpha = round(self.phase_config.opacity * 255 / 100)
@@ -128,18 +158,13 @@ class SettingsDialog(QDialog):
 
     changed = Signal(object, bool)
 
-    def __init__(self, parent, timer: FocusTimer, font_size: int, position: str) -> None:
+    def __init__(self, parent, timer: FocusTimer, position: str) -> None:
         super().__init__(parent)
         self.setWindowTitle("FocusLoop - 設定")
         self.setMinimumWidth(760)
         self.setMinimumHeight(450)
         self.result_phases: tuple[PhaseConfig, ...] | None = None
-        self._last_emitted_appearance = (font_size, position)
-
-        self.font_spin = QSpinBox(self)
-        self.font_spin.setRange(18, 96)
-        self.font_spin.setSuffix(" pt")
-        self.font_spin.setValue(font_size)
+        self._last_emitted_position = position
 
         self.position_combo = QComboBox(self)
         for label, value in POSITIONS:
@@ -147,11 +172,10 @@ class SettingsDialog(QDialog):
         self.position_combo.setCurrentIndex(max(0, self.position_combo.findData(position)))
 
         form = QFormLayout()
-        form.addRow("文字サイズ", self.font_spin)
         form.addRow("表示位置", self.position_combo)
 
-        self.table = QTableWidget(0, 5, self)
-        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "透過率", "削除"))
+        self.table = QTableWidget(0, 6, self)
+        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "文字サイズ", "透過率", "削除"))
         handle = self.table.verticalHeader()
         handle.show()
         handle.setFixedWidth(44)
@@ -162,18 +186,19 @@ class SettingsDialog(QDialog):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self._render_rows([
             {
                 "name": phase.name,
                 "minutes": phase.minutes,
                 "color": phase.color,
+                "font_size": phase.font_size,
                 "opacity": phase.opacity,
             }
             for phase in timer.phases
         ])
-        self.font_spin.valueChanged.connect(lambda _value: self._notify_change())
         self.position_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
 
         add_button = QPushButton("＋ フェーズを追加", self)
