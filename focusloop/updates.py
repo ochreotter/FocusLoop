@@ -243,13 +243,15 @@ catch {
         }
         catch { Write-UpdateLog "Rollback failed: $_ (backup: $backup)" }
     }
-    try {
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show(
-            "FocusLoop update failed. See: $LogFile",
-            'FocusLoop Update', 'OK', 'Error'
-        ) | Out-Null
-    } catch {}
+    if ($env:FOCUSLOOP_UPDATER_TESTING -ne '1') {
+        try {
+            Add-Type -AssemblyName System.Windows.Forms
+            [System.Windows.Forms.MessageBox]::Show(
+                "FocusLoop update failed. See: $LogFile",
+                'FocusLoop Update', 'OK', 'Error'
+            ) | Out-Null
+        } catch {}
+    }
 }
 """
 
