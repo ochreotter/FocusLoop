@@ -50,6 +50,8 @@ class CardSettingsTests(unittest.TestCase):
         self.assertIn("45分", first.summary.text())
         self.assertIn("左下", first.summary.text())
         self.assertIn("最前面ON", first.summary.text())
+        self.assertIn("#F5F7FC", first.main_swatch.styleSheet())
+        self.assertTrue(first.sub_swatch.isVisible())
         self.assertIn("標準", first.summary.text())
         self.assertIsInstance(first.drag_handle, PhaseDragHandle)
         self.assertTrue(first.acceptDrops())
@@ -112,9 +114,11 @@ class CardSettingsTests(unittest.TestCase):
         self.assertIs(container.layout().itemAt(1).widget(), card.gradient_end)
         card.gradient_end.setCurrentIndex(card.gradient_end.findData("black"))
         card.gradient.setChecked(False)
+        self.assertFalse(card.sub_swatch.isVisible())
         self.assertFalse(card.gradient_end.isEnabled())
         self.assertEqual(self.dialog.result_phases[0].gradient_end, "black")
         card.gradient.setChecked(True)
+        self.assertTrue(card.sub_swatch.isVisible())
         self.assertTrue(card.gradient_end.isEnabled())
 
     def test_add_and_reorder_keeps_all_per_phase_settings(self):
