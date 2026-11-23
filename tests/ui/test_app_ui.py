@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import struct
 import tempfile
 import unittest
@@ -11,8 +10,8 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
-    QApplication, QAbstractButton, QCheckBox, QDialogButtonBox, QMessageBox,
-    QPushButton, QScrollArea, QSlider, QSystemTrayIcon,
+    QApplication, QAbstractButton, QDialogButtonBox, QMessageBox,
+    QPushButton, QScrollArea, QSystemTrayIcon,
 )
 
 from focusloop.app import FocusLoopApp, PhaseCard, PhaseDragHandle, SettingsDialog
