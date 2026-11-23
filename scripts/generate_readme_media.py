@@ -108,6 +108,13 @@ def render() -> None:
     app.setFont(QFont("Segoe UI", 10))
     print(f"Qt has Segoe UI: {QFontDatabase.hasFamily('Segoe UI')}")
     print(f"Qt has Consolas: {QFontDatabase.hasFamily('Consolas')}")
+    cjk_path = Path(os.environ["FOCUSLOOP_DOCS_CJK_FONT"])
+    cjk_id = QFontDatabase.addApplicationFont(str(cjk_path))
+    cjk_families = QFontDatabase.applicationFontFamilies(cjk_id)
+    if not cjk_families:
+        raise RuntimeError(f"Could not register Japanese preview font: {cjk_path}")
+    japanese_family = cjk_families[0]
+    print(f"Japanese preview font: {japanese_family}")
 
     english_phases = (
         PhaseConfig("Focus", 45, color="amber", opacity=75, font_size=50,
@@ -115,11 +122,12 @@ def render() -> None:
         PhaseConfig("Break", 15, color="mint", opacity=80, font_size=72,
                     gradient=False, position="center"),
     )
-    dialogs = (
-        ("focusloop-settings-en.png", SettingsDialog(None, FocusTimer(english_phases), "en")),
-        ("focusloop-settings-ja.png", SettingsDialog(None, FocusTimer(default_phases()), "ja")),
-    )
-    for filename, dialog in dialogs:
+    for filename, phases, language, font_family in (
+        ("focusloop-settings-en.png", english_phases, "en", "Segoe UI"),
+        ("focusloop-settings-ja.png", default_phases(), "ja", japanese_family),
+    ):
+        app.setFont(QFont(font_family, 10))
+        dialog = SettingsDialog(None, FocusTimer(phases), language)
         dialog.resize(900, 690)
         dialog.show()
         app.processEvents()
@@ -128,6 +136,7 @@ def render() -> None:
         print(f"Saved {filename}: {screenshot.size}")
         dialog.close()
         app.processEvents()
+    app.setFont(QFont("Segoe UI", 10))
 
     focus = PhaseConfig("FOCUS", 45, color="amber", opacity=100, font_size=40,
                         gradient=True, gradient_end="rose", position="center")
