@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRectF, Qt
+from PySide6.QtCore import QPoint, QRect, QRectF, Qt
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QLinearGradient, QPainter, QPen,
 )
@@ -11,6 +11,41 @@ from PySide6.QtWidgets import QWidget
 from .timer import COLOR_HEX, MIN_FONT_SIZE, PhaseConfig
 
 DISPLAY_STYLES = (("Modern", "modern"), ("Simple", "simple"))
+
+
+def contrasting_outline_color(foreground: QColor) -> QColor:
+    """Pick the high-contrast outline by WCAG relative luminance.
+
+    A white foreground receives a dark stroke; a black foreground receives
+    a light stroke. All other palette colors are handled automatically.
+    """
+    def linear(channel: float) -> float:
+        return channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+
+    luminance = (
+        0.2126 * linear(foreground.redF())
+        + 0.7152 * linear(foreground.greenF())
+        + 0.0722 * linear(foreground.blueF())
+    )
+    # Black wins the WCAG contrast-ratio comparison above this point.
+    outline = QColor("#000000" if luminance >= 0.179 else "#FFFFFF")
+    outline.setAlpha(205)
+    return outline
+
+
+def draw_outlined_text(
+    painter: QPainter, bounds: QRect | QRectF, text: str, foreground: QColor,
+) -> None:
+    """Draw a subtle one-pixel text outline that respects painter opacity."""
+    painter.setPen(contrasting_outline_color(foreground))
+    for dx, dy in (
+        (-1, -1), (0, -1), (1, -1),
+        (-1, 0),           (1, 0),
+        (-1, 1),  (0, 1),  (1, 1),
+    ):
+        painter.drawText(bounds.translated(dx, dy), Qt.AlignmentFlag.AlignCenter, text)
+    painter.setPen(foreground)
+    painter.drawText(bounds, Qt.AlignmentFlag.AlignCenter, text)
 
 
 def remaining_arc_angles(remaining_ratio: float) -> tuple[int, int]:
@@ -147,14 +182,10 @@ class Overlay(QWidget):
         font = QFont("Consolas", self._render_font_size)
         font.setBold(True)
         painter.setFont(font)
-        shadow = QColor("#000000")
-        shadow.setAlphaF(0.65)
-        painter.setPen(shadow)
-        painter.drawText(
-            self.rect().translated(2, 2), Qt.AlignmentFlag.AlignCenter, self.clock_text
+        draw_outlined_text(
+            painter, self.rect(), self.clock_text,
+            QColor(COLOR_HEX[self.phase_config.color]),
         )
-        painter.setPen(QColor(COLOR_HEX[self.phase_config.color]))
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.clock_text)
 
     def _paint_modern(self, painter: QPainter) -> None:
         side = min(self.width(), self.height())
@@ -187,18 +218,19 @@ class Overlay(QWidget):
         loop_font.setPixelSize(max(9, round(side * 0.055)))
         loop_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, max(1.0, side * 0.004))
         painter.setFont(loop_font)
-        painter.setPen(QColor("#E1E6F0"))
         loop_rect = QRectF(x + side * 0.18, y + side * 0.27, side * 0.64, side * 0.11)
-        painter.drawText(loop_rect, Qt.AlignmentFlag.AlignCenter, f"LOOP {self.loop_number:02d}")
+        draw_outlined_text(
+            painter, loop_rect, f"LOOP {self.loop_number:02d}", QColor("#E1E6F0"),
+        )
 
         time_font = QFont("Consolas", self._render_font_size)
         time_font.setBold(True)
         painter.setFont(time_font)
         time_rect = QRectF(x + side * 0.07, y + side * 0.38, side * 0.86, side * 0.25)
-        painter.setPen(QColor("#000000"))
-        painter.drawText(time_rect.translated(1, 2), Qt.AlignmentFlag.AlignCenter, self.clock_text)
-        painter.setPen(QColor(COLOR_HEX[self.phase_config.color]))
-        painter.drawText(time_rect, Qt.AlignmentFlag.AlignCenter, self.clock_text)
+        draw_outlined_text(
+            painter, time_rect, self.clock_text,
+            QColor(COLOR_HEX[self.phase_config.color]),
+        )
 
         badge = QRectF(x + side * 0.30, y + side * 0.66, side * 0.40, side * 0.125)
         badge_color = QColor(COLOR_HEX[self.phase_config.color])
@@ -210,8 +242,7 @@ class Overlay(QWidget):
         name_font.setPixelSize(max(9, round(side * 0.062)))
         name_font.setBold(True)
         painter.setFont(name_font)
-        painter.setPen(QColor("#F5F7FC"))
         label = QFontMetrics(name_font).elidedText(
             self.phase_config.name, Qt.TextElideMode.ElideRight, max(1, round(badge.width() - 14))
         )
-        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, label)
+        draw_outlined_text(painter, badge, label, QColor("#F5F7FC"))

@@ -1,0 +1,92 @@
+"""Offscreen rendering tests for readable text on light and dark desktops."""
+
+import unittest
+from unittest.mock import patch
+
+from PySide6.QtCore import QRect, Qt
+from PySide6.QtGui import QColor, QFont, QImage, QPainter
+from PySide6.QtWidgets import QApplication
+
+from focusloop.overlay import (
+    Overlay, contrasting_outline_color, draw_outlined_text,
+)
+from focusloop.timer import COLOR_HEX, PhaseConfig
+
+
+class ContrastTextTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_white_uses_black_outline_black_uses_white(self):
+        self.assertEqual(contrasting_outline_color(QColor(COLOR_HEX["white"])).name(), "#000000")
+        self.assertEqual(contrasting_outline_color(QColor(COLOR_HEX["black"])).name(), "#ffffff")
+
+    def test_every_preset_chooses_contrasting_outline(self):
+        for key, value in COLOR_HEX.items():
+            with self.subTest(color=key):
+                result = contrasting_outline_color(QColor(value))
+                self.assertIn(result.name(), ("#000000", "#ffffff"))
+                self.assertGreater(result.alpha(), 0)
+                if key != "black":
+                    self.assertEqual(result.name(), "#000000")
+
+    def test_actual_pixels_contain_foreground_and_outline(self):
+        # Draw transparent images rather than relying on the OS desktop color.
+        for key in ("white", "black", "mint", "sky", "amber", "rose", "violet"):
+            with self.subTest(color=key):
+                canvas = QImage(240, 110, QImage.Format.Format_ARGB32_Premultiplied)
+                canvas.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(canvas)
+                font = QFont("Consolas", 50)
+                font.setBold(True)
+                painter.setFont(font)
+                draw_outlined_text(
+                    painter, QRect(0, 0, 240, 110), "88", QColor(COLOR_HEX[key]),
+                )
+                painter.end()
+
+                fg = QColor(COLOR_HEX[key])
+                stroke = contrasting_outline_color(fg)
+                found_foreground = False
+                found_stroke = False
+                for y in range(canvas.height()):
+                    for x in range(canvas.width()):
+                        c = canvas.pixelColor(x, y)
+                        if c.alpha() < 170:
+                            continue
+                        if (
+                            abs(c.red() - fg.red()) < 8
+                            and abs(c.green() - fg.green()) < 8
+                            and abs(c.blue() - fg.blue()) < 8
+                            and c.alpha() > 230
+                        ):
+                            found_foreground = True
+                        if (
+                            abs(c.red() - stroke.red()) < 8
+                            and abs(c.green() - stroke.green()) < 8
+                            and abs(c.blue() - stroke.blue()) < 8
+                        ):
+                            found_stroke = True
+                        if found_foreground and found_stroke:
+                            break
+                    if found_foreground and found_stroke:
+                        break
+                self.assertTrue(found_foreground, f"{key}: main text missing")
+                self.assertTrue(found_stroke, f"{key}: outline missing")
+
+    def test_simple_and_modern_draw_text_with_shared_outline(self):
+        for style, expected in (("simple", 1), ("modern", 3)):
+            with self.subTest(style=style):
+                overlay = Overlay("bottom_left", PhaseConfig("作業", 45, color="black"), style)
+                overlay.show()
+                self.app.processEvents()
+                with patch("focusloop.overlay.draw_outlined_text", wraps=draw_outlined_text) as draw:
+                    image = overlay.grab()
+                    self.assertFalse(image.isNull())
+                    self.assertEqual(draw.call_count, expected)
+                overlay.close()
+
+
+if __name__ == "__main__":
+    unittest.main()
