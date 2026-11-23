@@ -79,6 +79,18 @@ class LocalizedAppTests(unittest.TestCase):
             dialog.cards[1].position.findData("center")), "Center")
         self.assertIn("Pause", [a.text() for a in self.controller.menu.actions()])
         self.assertIn("Next phase", [a.text() for a in self.controller.menu.actions()])
+        self.assertIn("Reset loop count", [a.text() for a in self.controller.menu.actions()])
+        self.assertEqual(
+            [action.text() for action in self.controller.menu.actions()
+             if action in (self.controller.pause_action, self.controller.skip_action,
+                           self.controller.reset_action, self.controller.loop_reset_action)],
+            ["Pause", "Next phase", "Reset current phase", "Reset loop count"],
+        )
+        self.assertEqual(
+            [dialog.layout().itemAt(dialog.layout().count() - 1).layout()
+             .itemAt(i).widget().text() for i in range(4)],
+            ["Pause", "Next phase", "Reset current phase", "Reset loop count"],
+        )
         self.assertIn("Settings", [a.text() for a in self.controller.menu.actions()])
         self.assertIn("Quit", [a.text() for a in self.controller.menu.actions()])
         self.assertEqual(dialog.pause_button.text(), "Pause")
@@ -91,6 +103,35 @@ class LocalizedAppTests(unittest.TestCase):
         self.assertEqual(self.controller.timer_model.phases[0].name, "作業中")
         self.controller.settings.sync()
         self.assertIn('"作業中"', self.controller.settings.value("phases_json"))
+
+    def test_translated_tray_loop_reset_and_settings_next_phase(self):
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("en"))
+        self.assertEqual(dialog.skip_button.text(), "Next phase")
+        self.assertEqual(dialog.loop_reset_button.text(), "Reset loop count")
+        self.assertEqual(dialog.pause_button.text(), "Pause")
+
+        dialog.skip_button.click()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
+        self.assertEqual(self.controller.overlay.phase_config.name, "On Break")
+
+        self.controller.timer_model.pause()
+        self.controller.timer_model.loop_number = 7
+        self.controller.update()
+        before = self.controller.timer_model.remaining_seconds()
+        self.controller.loop_reset_action.trigger()
+        self.assertEqual(self.controller.timer_model.remaining_seconds(), before)
+        self.assertTrue(self.controller.timer_model.paused)
+        self.assertEqual(self.controller.timer_model.loop_number, 1)
+        self.assertEqual(dialog.loop_label.text(), "LOOP 01")
+        self.assertEqual(dialog.pause_button.text(), "Resume")
+
+        dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("ja"))
+        self.assertEqual(dialog.skip_button.text(), "次のフェーズへ")
+        self.assertEqual(dialog.loop_reset_button.text(), "ループ数をリセット")
+        self.assertEqual(self.controller.loop_reset_action.text(), "ループ数をリセット")
+        self.assertEqual(self.controller.menu.actions()[0], self.controller.status_action)
 
     def test_language_change_bidirectional_and_custom_names_unchanged(self):
         self.controller.show_settings()
