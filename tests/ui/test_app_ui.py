@@ -185,24 +185,33 @@ class SettingsUITests(unittest.TestCase):
         self.assertEqual(self.dialog.result_phases[0].color, "black")
         self.assertEqual(self.dialog.result_phases[0].gradient_end, "black")
 
-    def test_delete_buttons_are_red_even_after_adding_phase(self):
+    def test_delete_buttons_are_compact_and_muted_after_adding_phase(self):
         for index in range(self.dialog.table.rowCount()):
-            button = self.dialog.table.cellWidget(index, 6)
-            self.assertIsInstance(button, QPushButton)
-            self.assertIn("#C62828", button.styleSheet())
+            cell = self.dialog.table.cellWidget(index, 6)
+            button = cell.findChild(QPushButton)
+            self.assertIsNotNone(button)
             self.assertEqual(button.text(), "削除")
+            self.assertIn("#F9EAEC", button.styleSheet())
+            self.assertNotIn("#C62828", button.styleSheet())
+            self.assertEqual((button.width(), button.height()), (54, 26))
+            self.assertGreaterEqual(button.geometry().left(), 0)
+            self.assertGreaterEqual(button.geometry().top(), 0)
+            self.assertLessEqual(button.geometry().right(), cell.width())
+            self.assertLessEqual(button.geometry().bottom(), cell.height())
         self.dialog._add_phase()
-        self.assertIn("#C62828", self.dialog.table.cellWidget(2, 6).styleSheet())
+        self.qt_app.processEvents()
+        added = self.dialog.table.cellWidget(2, 6).findChild(QPushButton)
+        self.assertIn("#F9EAEC", added.styleSheet())
         with patch.object(
             QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
         ) as confirm:
-            self.dialog.table.cellWidget(2, 6).click()
+            added.click()
             confirm.assert_called_once()
         self.assertEqual(self.dialog.table.rowCount(), 2)
 
     def test_delete_requires_confirmation_and_cancel_keeps_timer_and_phases(self):
         phases_before = self.dialog._snapshot()
-        button = self.dialog.table.cellWidget(0, 6)
+        button = self.dialog.table.cellWidget(0, 6).findChild(QPushButton)
         with patch.object(
             QMessageBox, "exec", return_value=QMessageBox.StandardButton.Cancel
         ) as popup:
@@ -233,7 +242,7 @@ class SettingsUITests(unittest.TestCase):
         self.assertEqual(self.dialog._snapshot()[0]["name"], "休憩")
         name = self.dialog.table.cellWidget(0, 0)
         self.assertEqual(name.text(), "作業")
-        button = self.dialog.table.cellWidget(0, 6)
+        button = self.dialog.table.cellWidget(0, 6).findChild(QPushButton)
         with patch.object(
             QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
         ):
