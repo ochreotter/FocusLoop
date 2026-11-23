@@ -10,9 +10,6 @@ from PySide6.QtWidgets import QWidget
 
 from .timer import COLOR_HEX, MIN_FONT_SIZE, PhaseConfig
 
-DISPLAY_STYLES = (("Modern", "modern"), ("Simple", "simple"))
-
-
 def contrasting_shadow_color(foreground: QColor) -> QColor:
     """Choose a dark or light shadow for all seven palette colors."""
     channels = [
@@ -50,7 +47,7 @@ def remaining_arc_angles(remaining_ratio: float) -> tuple[int, int]:
 class Overlay(QWidget):
     """Paint a click-through timer; never paint an opaque background panel."""
 
-    def __init__(self, position: str, phase: PhaseConfig, style: str = "modern") -> None:
+    def __init__(self, phase: PhaseConfig) -> None:
         super().__init__()
         flags = (
             Qt.WindowType.FramelessWindowHint
@@ -65,8 +62,8 @@ class Overlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.clock_text = f"{phase.minutes:02d}:00"
         self.phase_config = phase
-        self.position_name = position
-        self.display_style = style
+        self.position_name = phase.position
+        self.display_style = "simple" if phase.simple else "modern"
         self.remaining_ratio = 1.0
         self.loop_number = 1
         self._render_font_size = phase.font_size
@@ -128,7 +125,10 @@ class Overlay(QWidget):
         remaining_ratio: float = 1.0, loop_number: int = 1,
     ) -> None:
         remaining_ratio = max(0.0, min(1.0, remaining_ratio))
-        resized = phase.font_size != self.phase_config.font_size
+        style = "simple" if phase.simple else "modern"
+        resized = (phase.font_size != self.phase_config.font_size
+                   or style != self.display_style)
+        repositioned = phase.position != self.position_name
         changed = (
             (text, phase, remaining_ratio, loop_number)
             != (self.clock_text, self.phase_config, self.remaining_ratio, self.loop_number)
@@ -139,20 +139,13 @@ class Overlay(QWidget):
         self.phase_config = phase
         self.remaining_ratio = remaining_ratio
         self.loop_number = loop_number
-        if resized:
-            self._resize_and_reposition()
-        else:
-            self.update()
-
-    def apply_appearance(self, position: str, style: str | None = None) -> None:
-        style = self.display_style if style is None else style
-        resized = style != self.display_style
-        self.position_name = position
+        self.position_name = phase.position
         self.display_style = style
         if resized:
             self._resize_and_reposition()
         else:
-            self.reposition()
+            if repositioned:
+                self.reposition()
             self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
