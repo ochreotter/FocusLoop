@@ -185,6 +185,34 @@ class CardSettingsTests(unittest.TestCase):
         self.assertEqual(self.dialog.update_button.text(), "Check for updates")
         self.assertEqual(self.dialog.version_label.text(), version)
 
+    def test_japanese_help_text_and_tooltips_use_polite_style(self):
+        card = self.dialog.cards[0]
+        self.assertEqual(
+            self.dialog.note_label.text(),
+            "設定は即時反映・保存されます。⠿をドラッグするか、↑↓で並べ替えられます。"
+            "順番・分数を変更すると、先頭から再スタートします。",
+        )
+        expected = (
+            (card.drag_handle, "ドラッグしてフェーズの順番を変更できます。"),
+            (card.move_up, "フェーズを上に移動します。"),
+            (card.move_down, "フェーズを下に移動します。"),
+            (card.expand_button, "フェーズの設定欄を開閉します。"),
+            (card.hidden, "このフェーズ中はタイマー表示のみを非表示にします。"),
+            (card.delete_button, "フェーズを削除します。確認画面が表示されます。"),
+            (self.dialog.initialize_button, "設定とタイマーを初期値に戻します。"),
+        )
+        for widget, text in expected:
+            with self.subTest(widget=widget):
+                self.assertEqual(widget.toolTip(), text)
+
+        self.dialog.language_combo.setCurrentIndex(
+            self.dialog.language_combo.findData("en")
+        )
+        self.assertIn("Changes are saved immediately", self.dialog.note_label.text())
+        self.assertEqual(
+            self.dialog.cards[0].drag_handle.toolTip(), "Drag to reorder phases"
+        )
+
     def test_all_buttons_and_checkboxes_show_pointing_hand(self):
         for button in self.dialog.findChildren(QAbstractButton):
             self.assertEqual(
@@ -405,6 +433,49 @@ class AppRegressionTests(unittest.TestCase):
         self.settings_patch.stop()
         self.directory.cleanup()
         self.app.processEvents()
+
+    def test_japanese_update_dialogs_use_polite_messages(self):
+        self.controller.show_settings()
+        self.assertEqual(self.controller.language, "ja")
+        release = Mock(version="1.0.2")
+
+        with patch.object(QMessageBox, "warning") as warning:
+            self.controller._on_update_checked(None, "network error")
+            self.assertIn("更新を確認できませんでした。", warning.call_args.args[2])
+        with patch.object(QMessageBox, "information") as info:
+            self.controller._on_update_checked(None, None)
+            self.assertEqual(info.call_args.args[2], "FocusLoopは最新バージョンです。")
+
+        with (
+            patch("focusloop.app.updates.can_self_update", return_value=False),
+            patch.object(QMessageBox, "information") as info,
+        ):
+            self.controller._on_update_checked(release, None)
+            message = info.call_args.args[2]
+            self.assertIn("新しいバージョン 1.0.2 を利用できます。", message)
+            self.assertIn("Windows配布版のみ対応しています。", message)
+
+        with (
+            patch("focusloop.app.updates.can_self_update", return_value=True),
+            patch.object(QMessageBox, "question",
+                         return_value=QMessageBox.StandardButton.No) as question,
+        ):
+            self.controller._on_update_checked(release, None)
+            message = question.call_args.args[2]
+            self.assertIn("1.0.2 に更新しますか？", message)
+            self.assertIn("自動的に再起動します。", message)
+
+        with patch.object(QMessageBox, "warning") as warning:
+            self.controller._on_update_prepared(None, "download error")
+            self.assertIn("更新ファイルを準備できませんでした。", warning.call_args.args[2])
+
+        with (
+            patch("focusloop.app.updates.launch_updater", side_effect=OSError("failed")),
+            patch("focusloop.app.updates.discard_prepared_update"),
+            patch.object(QMessageBox, "warning") as warning,
+        ):
+            self.controller._on_update_prepared(object(), None)
+            self.assertIn("更新処理を開始できませんでした。", warning.call_args.args[2])
 
     def test_first_run_and_settings_reset_match_screenshot(self):
         expected = default_phases()

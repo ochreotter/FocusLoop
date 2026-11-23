@@ -133,7 +133,7 @@ class PhaseDragHandle(QToolButton):
         super().__init__(card)
         self.card = card
         self.setText("⠿")
-        self.setToolTip(tr("ドラッグして順番を変更", card.owner.language))
+        self.setToolTip(tr("ドラッグしてフェーズの順番を変更できます。", card.owner.language))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._press_point: QPoint | None = None
 
@@ -206,13 +206,13 @@ class PhaseCard(QFrame):
         caption.addWidget(self.summary)
         self.move_up = QToolButton(self.header_widget)
         self.move_up.setText("↑")
-        self.move_up.setToolTip(tr("上へ移動", owner.language))
+        self.move_up.setToolTip(tr("フェーズを上に移動します。", owner.language))
         self.move_down = QToolButton(self.header_widget)
         self.move_down.setText("↓")
-        self.move_down.setToolTip(tr("下へ移動", owner.language))
+        self.move_down.setToolTip(tr("フェーズを下に移動します。", owner.language))
         self.expand_button = QToolButton(self.header_widget)
         self.expand_button.setText("∨")
-        self.expand_button.setToolTip(tr("カードを開く／閉じる", owner.language))
+        self.expand_button.setToolTip(tr("フェーズの設定欄を開閉します。", owner.language))
         self.expand_button.setAccessibleName(tr("フェーズ設定の開閉", owner.language))
         self.expand_button.setFixedSize(32, 32)
         self.expand_button.setCheckable(True)
@@ -313,7 +313,7 @@ class PhaseCard(QFrame):
         self.topmost = QCheckBox(tr("最前面に表示", owner.language), window_options)
         self.topmost.setChecked(bool(values["topmost"]))
         self.hidden = QCheckBox(tr("非表示", owner.language), window_options)
-        self.hidden.setToolTip(tr("このフェーズの間はタイマー表示だけを隠す", owner.language))
+        self.hidden.setToolTip(tr("このフェーズ中はタイマー表示のみを非表示にします。", owner.language))
         self.hidden.setChecked(bool(values["hidden"]))
         window_layout.addWidget(self.topmost)
         window_layout.addWidget(self.hidden)
@@ -339,7 +339,7 @@ class PhaseCard(QFrame):
             "QPushButton:hover { background-color: #F3DBDF; color: #853942; } "
             "QPushButton:pressed { background-color: #EBC9CE; }"
         )
-        self.delete_button.setToolTip(tr("フェーズを削除（確認あり）", owner.language))
+        self.delete_button.setToolTip(tr("フェーズを削除します。確認画面が表示されます。", owner.language))
         self.delete_button.clicked.connect(lambda: owner._confirm_delete_card(self))
         delete_layout.addWidget(self.delete_button)
         fields.addWidget(delete_area, 4, 1)
@@ -528,8 +528,8 @@ class SettingsDialog(QDialog):
         self.add_button = add_button
         add_button.clicked.connect(self._add_phase)
         self.note_text = (
-            "設定は即時反映・保存されます。⠿をドラッグ、または↑↓で並べ替え。"
-            "順番・分数の変更時は先頭から再スタートします。"
+            "設定は即時反映・保存されます。⠿をドラッグするか、↑↓で並べ替えられます。"
+            "順番・分数を変更すると、先頭から再スタートします。"
         )
         note = QLabel(tr(self.note_text, self.language), self)
         self.note_label = note
@@ -538,7 +538,7 @@ class SettingsDialog(QDialog):
         initialize = QPushButton(tr("設定初期化", self.language), self)
         self.initialize_button = initialize
         initialize.setObjectName("initialize_button")
-        initialize.setToolTip(tr("設定とタイマーをすべて初期値に戻す", self.language))
+        initialize.setToolTip(tr("設定とタイマーを初期値に戻します。", self.language))
         initialize.clicked.connect(self._confirm_initialize)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
         self.close_button = buttons.button(QDialogButtonBox.StandardButton.Close)
@@ -727,7 +727,7 @@ class SettingsDialog(QDialog):
         self.add_button.setText(tr("＋ フェーズを追加", language))
         self.note_label.setText(tr(self.note_text, language))
         self.initialize_button.setText(tr("設定初期化", language))
-        self.initialize_button.setToolTip(tr("設定とタイマーをすべて初期値に戻す", language))
+        self.initialize_button.setToolTip(tr("設定とタイマーを初期値に戻します。", language))
         self.close_button.setText(tr("閉じる", language))
         self.set_pause_state(self._paused)
         self._render_cards(rows, expanded_indices=expanded)
@@ -1039,13 +1039,13 @@ class FocusLoopApp(QObject):
             QMessageBox.warning(
                 dialog, "FocusLoop",
                 f"Could not check for updates:\n{error}" if english
-                else f"更新を確認できなかったよ。\n{error}",
+                else f"更新を確認できませんでした。\n{error}",
             )
             return
         if release is None:
             QMessageBox.information(
                 dialog, "FocusLoop",
-                "FocusLoop is up to date." if english else "FocusLoopは最新バージョンだよ。",
+                "FocusLoop is up to date." if english else "FocusLoopは最新バージョンです。",
             )
             return
         if not updates.can_self_update():
@@ -1054,7 +1054,7 @@ class FocusLoopApp(QObject):
                 (f"Version {release.version} is available. Self-updates require "
                  f"the packaged Windows app.\n{updates.RELEASES_PAGE}")
                 if english else
-                (f"新しいバージョン {release.version} があるよ。自動更新は配布用Windows版のみ対応。"
+                (f"新しいバージョン {release.version} を利用できます。自動更新はWindows配布版のみ対応しています。"
                  f"\n{updates.RELEASES_PAGE}"),
             )
             return
@@ -1062,8 +1062,8 @@ class FocusLoopApp(QObject):
             f"Update FocusLoop {updates.VERSION} to {release.version}?\n"
             "The app will close and restart when the download is ready."
             if english else
-            f"FocusLoop {updates.VERSION} → {release.version} に更新する？\n"
-            "ダウンロード後にアプリを終了し、自動で再起動するよ。"
+            f"FocusLoop {updates.VERSION} から {release.version} に更新しますか？\n"
+            "ダウンロード後、アプリを終了して自動的に再起動します。"
         )
         answer = QMessageBox.question(
             dialog, "FocusLoop", confirmation,
@@ -1107,7 +1107,7 @@ class FocusLoopApp(QObject):
             QMessageBox.warning(
                 dialog, "FocusLoop",
                 f"Update download failed:\n{error}" if self.language == "en"
-                else f"更新ファイルを準備できなかったよ。\n{error}",
+                else f"更新ファイルを準備できませんでした。\n{error}",
             )
             return
         try:
@@ -1117,7 +1117,7 @@ class FocusLoopApp(QObject):
             QMessageBox.warning(
                 dialog, "FocusLoop",
                 f"Could not start update:\n{exc}" if self.language == "en"
-                else f"更新処理を開始できなかったよ。\n{exc}",
+                else f"更新処理を開始できませんでした。\n{exc}",
             )
             return
         self.settings.sync()
