@@ -35,7 +35,6 @@ from .geometry import tray_menu_position
 from .icons import clock_icon
 from .overlay import Overlay
 from .timer import (
-    COLOR_HEX,
     COLOR_PRESETS,
     DEFAULT_FONT_SIZE,
     MAX_FONT_SIZE,
@@ -487,7 +486,10 @@ class SettingsDialog(QDialog):
         layout.addLayout(footer)
         self._set_button_cursors()
 
-    def _render_cards(self, rows: list[dict], expanded_index: int = 0) -> None:
+    def _render_cards(
+        self, rows: list[dict], expanded_index: int = 0,
+        expanded_indices: set[int] | None = None,
+    ) -> None:
         self._rendering = True
         try:
             for card in self.cards:
@@ -500,8 +502,12 @@ class SettingsDialog(QDialog):
                 self.cards.append(card)
                 self.cards_layout.insertWidget(i, card)
                 card.show()
-            if self.cards:
-                self.cards[max(0, min(expanded_index, len(self.cards) - 1))].expand_button.setChecked(True)
+            open_indices = (
+                {expanded_index} if expanded_indices is None else expanded_indices
+            )
+            for index in open_indices:
+                if 0 <= index < len(self.cards):
+                    self.cards[index].expand_button.setChecked(True)
             self._update_move_buttons()
         finally:
             self._rendering = False
@@ -556,14 +562,23 @@ class SettingsDialog(QDialog):
             f"「{card.name.text()}」を削除しますか？",
             "この操作は取り消せません。", "削除する",
         ):
-            rows = [other.snapshot() for other in self.cards if other is not card]
-            self._render_cards(rows)
+            remaining = [other for other in self.cards if other is not card]
+            rows = [other.snapshot() for other in remaining]
+            expanded = {
+                i for i, other in enumerate(remaining)
+                if other.expand_button.isChecked()
+            }
+            self._render_cards(rows, expanded_indices=expanded)
             self._notify_change(force_restart=True)
 
     def _add_phase(self) -> None:
         rows = [card.snapshot() for card in self.cards]
+        expanded = {
+            i for i, card in enumerate(self.cards) if card.expand_button.isChecked()
+        }
         rows.append(asdict(PhaseConfig("新しいフェーズ", 5, color="sky")))
-        self._render_cards(rows, len(rows) - 1)
+        expanded.add(len(rows) - 1)
+        self._render_cards(rows, expanded_indices=expanded)
         self._notify_change(force_restart=True)
         self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
 
