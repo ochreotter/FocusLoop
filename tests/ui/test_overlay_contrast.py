@@ -75,6 +75,30 @@ class ContrastTextTests(unittest.TestCase):
                 self.assertTrue(found_foreground, f"{key}: main text missing")
                 self.assertTrue(found_shadow, f"{key}: shadow missing")
 
+    def test_progress_redraw_is_limited_to_visible_arc_changes(self):
+        overlay = Overlay(PhaseConfig("作業", 1))
+        overlay.show()
+        self.app.processEvents()
+        with patch.object(overlay, "update") as repaint:
+            # 30fps time increments too small to change the 1/16 degree Qt arc.
+            overlay.set_ring_progress(0.999999)
+            repaint.assert_not_called()
+            self.assertAlmostEqual(overlay.remaining_ratio, 0.999999)
+            overlay.set_ring_progress(0.99)
+            repaint.assert_called_once()
+            overlay.set_ring_progress(0.989999)
+            repaint.assert_called_once()
+            overlay.set_ring_progress(0.5)
+            self.assertEqual(repaint.call_count, 2)
+        overlay.close()
+
+        simple = Overlay(PhaseConfig("作業", 1, simple=True))
+        with patch.object(simple, "update") as repaint:
+            simple.set_ring_progress(0.5)
+            repaint.assert_not_called()
+            self.assertEqual(simple.remaining_ratio, 0.5)
+        simple.close()
+
     def test_modern_title_is_above_clock_and_loop_is_below(self):
         overlay = Overlay(PhaseConfig("作業", 45, font_size=300))
         overlay.show()

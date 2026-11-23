@@ -28,6 +28,26 @@ class TimerTests(unittest.TestCase):
         self.assertTrue(timer.tick(now=3610.0))
         self.assertEqual(timer.current_phase.name, "作業")
 
+    def test_fractional_remaining_ratio_is_monotonic_and_pause_safe(self):
+        timer = FocusTimer((PhaseConfig("作業", 1), PhaseConfig("休憩", 2)), now=0.0)
+        self.assertEqual(timer.remaining_ratio(now=0.0), 1.0)
+        self.assertAlmostEqual(timer.remaining_ratio(now=0.033), 59.967 / 60.0)
+        self.assertEqual(timer.remaining_seconds(now=0.033), 60)
+        self.assertAlmostEqual(timer.remaining_ratio(now=30.25), 29.75 / 60.0)
+        self.assertEqual(timer.remaining_ratio(now=61.0), 0.0)
+        timer.pause(now=30.25)
+        frozen_ratio = timer.remaining_ratio(now=30.25)
+        self.assertAlmostEqual(frozen_ratio, 29.75 / 60.0)
+        self.assertEqual(timer.remaining_ratio(now=10000.0), frozen_ratio)
+        timer.resume(now=1000.0)
+        self.assertAlmostEqual(timer.remaining_ratio(now=1000.0), frozen_ratio)
+        self.assertLess(timer.remaining_ratio(now=1000.033), frozen_ratio)
+        timer.skip(now=1001.0)
+        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.remaining_ratio(now=1001.0), 1.0)
+        timer.restart(now=1002.0)
+        self.assertEqual(timer.remaining_ratio(now=1002.0), 1.0)
+
     def test_pause_resume_preserves_remaining(self):
         timer = FocusTimer(now=0.0)
         timer.pause(now=30.5)

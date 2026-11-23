@@ -61,6 +61,9 @@ class CardSettingsTests(unittest.TestCase):
         self.assertTrue(first.title.font().bold())
         self.assertGreaterEqual(first.title.font().pointSize(), 13)
         self.assertIn("palette(window)", first.header_widget.styleSheet())
+        self.assertIn("palette(window-text)", first.summary.styleSheet())
+        self.assertNotIn("palette(mid)", first.summary.styleSheet())
+        self.assertIn("font-weight: 500", first.summary.styleSheet())
         self.assertIn("palette(base)", first.body.styleSheet())
         self.assertNotEqual(first.header_widget.styleSheet(), first.body.styleSheet())
         self.assertEqual(first.simple.text(), "Simple")
@@ -89,16 +92,29 @@ class CardSettingsTests(unittest.TestCase):
         QTest.mouseClick(first.header_widget, Qt.MouseButton.LeftButton)
         self.assertTrue(first.expand_button.isChecked())
 
-        # Background of the expanded editor is clickable, but inputs aren't.
-        QTest.mouseClick(first.body, Qt.MouseButton.LeftButton, pos=QPoint(3, 3))
-        self.assertFalse(first.body.isVisible())
-        first.expand_button.click()
+        # Body background, field labels and the outer border must NOT toggle.
         self.assertTrue(first.body.isVisible())
+        QTest.mouseClick(first.body, Qt.MouseButton.LeftButton, pos=QPoint(3, 3))
+        self.assertTrue(first.body.isVisible())
+        name_label = next(
+            label for label in first.body.findChildren(QLabel)
+            if label.text() == "フェーズ名"
+        )
+        QTest.mouseClick(name_label, Qt.MouseButton.LeftButton)
+        self.assertTrue(first.body.isVisible())
+        QTest.mouseClick(first.delete_button.parentWidget(), Qt.MouseButton.LeftButton,
+                         pos=QPoint(2, 2))
+        self.assertTrue(first.body.isVisible())
+        QTest.mouseClick(first, Qt.MouseButton.LeftButton, pos=QPoint(1, 1))
+        self.assertTrue(first.body.isVisible())
+
+        # Editor interactions and reorder controls remain independent.
         first.simple.click()
         self.assertTrue(first.body.isVisible())
         QTest.mouseClick(first.drag_handle, Qt.MouseButton.LeftButton)
         self.assertTrue(first.body.isVisible())
         self.assertEqual(len(self.events), 1)
+        self.assertTrue(second.body.isVisible())
 
     def test_all_buttons_and_checkboxes_show_pointing_hand(self):
         for button in self.dialog.findChildren(QAbstractButton):
@@ -264,6 +280,44 @@ class AppRegressionTests(unittest.TestCase):
         self.settings_patch.stop()
         self.directory.cleanup()
         self.app.processEvents()
+
+    def test_modern_ring_30fps_timer_stops_when_paused_simple_or_hidden(self):
+        self.assertEqual(self.controller.ring_timer.interval(), 33)
+        self.assertEqual(
+            self.controller.ring_timer.timerType(), Qt.TimerType.PreciseTimer
+        )
+        self.assertFalse(self.controller.ring_timer.isActive())
+        self.controller.overlay.show()
+        self.controller.update()
+        self.assertTrue(self.controller.ring_timer.isActive())
+
+        with patch.object(self.controller.overlay, "set_ring_progress") as animate:
+            self.controller._animate_ring()
+            animate.assert_called_once()
+            self.assertGreaterEqual(animate.call_args.args[0], 0.0)
+            self.assertLessEqual(animate.call_args.args[0], 1.0)
+
+        self.controller.toggle_pause()
+        self.assertFalse(self.controller.ring_timer.isActive())
+        self.controller.toggle_pause()
+        self.assertTrue(self.controller.ring_timer.isActive())
+
+        self.controller.show_settings()
+        card = self.controller.settings_dialog.cards[0]
+        card.simple.setChecked(True)
+        self.assertFalse(self.controller.ring_timer.isActive())
+        card.simple.setChecked(False)
+        self.assertTrue(self.controller.ring_timer.isActive())
+
+        self.controller.overlay.hide()
+        self.controller._animate_ring()
+        self.assertFalse(self.controller.ring_timer.isActive())
+
+        self.controller.overlay.show()
+        self.controller.update()
+        self.assertTrue(self.controller.ring_timer.isActive())
+        self.controller.close()
+        self.assertFalse(self.controller.ring_timer.isActive())
 
     def test_settings_pause_resume_button_tracks_tray_and_initialization(self):
         self.controller.show_settings()

@@ -157,7 +157,7 @@ class PhaseCard(QFrame):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        self._click_surfaces: list[QWidget] = []
+        self._header_click_surfaces: list[QWidget] = []
 
         # The entire header is a toggle target; drag/reorder controls remain independent.
         self.header_widget = QWidget(self)
@@ -181,7 +181,7 @@ class PhaseCard(QFrame):
         self.summary = QLabel(self.header_widget)
         self.summary.setTextFormat(Qt.TextFormat.PlainText)
         self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("color: palette(mid);")
+        self.summary.setStyleSheet("color: palette(window-text); font-weight: 500;")
         caption = QVBoxLayout()
         caption.setSpacing(3)
         caption.addWidget(self.title)
@@ -230,7 +230,7 @@ class PhaseCard(QFrame):
             column.addWidget(label_widget)
             column.addWidget(editor)
             fields.addWidget(area, row, col)
-            self._click_surfaces.extend((area, label_widget))
+
 
         self.name = QLineEdit(str(values["name"]), self.body)
         self.name.setMaxLength(40)
@@ -325,17 +325,17 @@ class PhaseCard(QFrame):
         self.delete_button.clicked.connect(lambda: owner._confirm_delete_card(self))
         delete_layout.addWidget(self.delete_button)
         fields.addWidget(delete_area, 4, 1)
-        self._click_surfaces.append(delete_area)
+
 
         outer.addWidget(self.body)
         self.body.hide()
-        self._click_surfaces.extend(
-            (self.header_widget, self.title, self.summary, self.body)
+        # Only the header toggles the accordion. The body stays a passive editor.
+        self._header_click_surfaces.extend(
+            (self.header_widget, self.title, self.summary)
         )
-        for surface in self._click_surfaces:
+        for surface in self._header_click_surfaces:
             surface.setCursor(Qt.CursorShape.PointingHandCursor)
             surface.installEventFilter(self)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         for widget in (
             self.name, self.minutes, self.color, self.gradient, self.gradient_end,
             self.size, self.opacity, self.simple, self.position, self.topmost,
@@ -397,22 +397,15 @@ class PhaseCard(QFrame):
         self.expand_button.setText("∧" if enabled else "∨")
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
-        # Only passive surfaces toggle; buttons and editors keep their own clicks.
+        # Limit toggling to header text/background; inputs remain independent.
         if (
-            watched in self._click_surfaces
+            watched in self._header_click_surfaces
             and event.type() == QEvent.Type.MouseButtonRelease
             and event.button() == Qt.MouseButton.LeftButton
         ):
             self.expand_button.toggle()
             return True
         return super().eventFilter(watched, event)
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt API
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.expand_button.toggle()
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt API
         if event.mimeData().hasFormat("application/x-focusloop-phase"):
@@ -681,6 +674,11 @@ class FocusLoopApp:
         self.qt_timer = QTimer(qt_app)
         self.qt_timer.setInterval(200)
         self.qt_timer.timeout.connect(self.update)
+        # A separate light-weight timer animates only the Modern ring.
+        self.ring_timer = QTimer(qt_app)
+        self.ring_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.ring_timer.setInterval(33)  # <= 30fps; actual repaints are angle-gated.
+        self.ring_timer.timeout.connect(self._animate_ring)
 
     def start(self) -> bool:
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -700,7 +698,7 @@ class FocusLoopApp:
         display = f"{remaining // 60:02d}:{remaining % 60:02d}"
         phase = self.timer_model.current_phase
         self.overlay.set_clock(
-            display, phase, remaining / (phase.minutes * 60), self.timer_model.loop_number
+            display, phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
         )
         # Hidden is a phase display setting, not a timer pause: the model and
         # tray keep updating. Do not show a window before start() is called.
@@ -724,6 +722,30 @@ class FocusLoopApp:
             self.last_display = state
         if switched:
             self._notify_phase_change()
+        self._sync_ring_animation()
+
+    def _sync_ring_animation(self) -> None:
+        """Animate only while Modern is visible and counting down."""
+        active = (
+            self.overlay.isVisible()
+            and not self.timer_model.paused
+            and not self.timer_model.current_phase.simple
+        )
+        if active and not self.ring_timer.isActive():
+            self.ring_timer.start()
+        elif not active and self.ring_timer.isActive():
+            self.ring_timer.stop()
+
+    def _animate_ring(self) -> None:
+        """Advance visual progress from the monotonic deadline, not frame counts."""
+        if (
+            self.timer_model.paused
+            or self.timer_model.current_phase.simple
+            or not self.overlay.isVisible()
+        ):
+            self.ring_timer.stop()
+            return
+        self.overlay.set_ring_progress(self.timer_model.remaining_ratio())
 
     def _save_loop_number(self) -> None:
         number = self.timer_model.loop_number
@@ -839,6 +861,7 @@ class FocusLoopApp:
         self.update()
 
     def close(self) -> None:
+        self.ring_timer.stop()
         self._overlay_started = False
         self.qt_timer.stop()
         if self.settings_dialog is not None:
