@@ -17,16 +17,52 @@ from focusloop.timer import (
 
 
 class TimerTests(unittest.TestCase):
+    def test_image_defaults_are_exact_and_round_trip(self):
+        phases = default_phases()
+        self.assertEqual(
+            phases,
+            (
+                PhaseConfig(
+                    "作業中", 45, color="amber", opacity=30, font_size=50,
+                    gradient=True, gradient_end="rose", simple=False,
+                    position="bottom_left", topmost=True, hidden=False,
+                ),
+                PhaseConfig(
+                    "休憩中", 15, color="mint", opacity=20, font_size=300,
+                    gradient=True, gradient_end="white", simple=False,
+                    position="center", topmost=True, hidden=False,
+                ),
+            ),
+        )
+        self.assertEqual(phases_from_json(phases_to_json(phases)), phases)
+        self.assertEqual(FocusTimer(now=0.0).phases, phases)
+
+    def test_legacy_fonts_are_not_overwritten_by_per_phase_defaults(self):
+        legacy = default_phases(20, 10, 72)
+        self.assertEqual([p.minutes for p in legacy], [20, 10])
+        self.assertEqual([p.font_size for p in legacy], [72, 72])
+        restored = phases_from_json(
+            None, legacy_work=20, legacy_break=10, legacy_font_size=72,
+        )
+        self.assertEqual(restored, legacy)
+
+        # Existing old JSON that has no per-phase font still gets the old 42pt.
+        old = json.dumps([{
+            "name": "以前の作業", "minutes": 33,
+            "color": "sky", "opacity": 70,
+        }])
+        self.assertEqual(phases_from_json(old)[0].font_size, 42)
+
     def test_defaults_and_transition(self):
         timer = FocusTimer(now=10.0)
         self.assertEqual([phase.minutes for phase in timer.phases], [45, 15])
         self.assertEqual(timer.remaining_seconds(now=10.0), 2700)
         self.assertFalse(timer.tick(now=2709.99))
         self.assertTrue(timer.tick(now=2710.0))
-        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.current_phase.name, "休憩中")
         self.assertEqual(timer.remaining_seconds(now=2710.0), 900)
         self.assertTrue(timer.tick(now=3610.0))
-        self.assertEqual(timer.current_phase.name, "作業")
+        self.assertEqual(timer.current_phase.name, "作業中")
 
     def test_fractional_remaining_ratio_is_monotonic_and_pause_safe(self):
         timer = FocusTimer((PhaseConfig("作業", 1), PhaseConfig("休憩", 2)), now=0.0)
@@ -60,14 +96,14 @@ class TimerTests(unittest.TestCase):
     def test_late_update_catches_up_without_drift(self):
         timer = FocusTimer(now=0.0)
         self.assertTrue(timer.tick(now=3605))
-        self.assertEqual(timer.current_phase.name, "作業")
+        self.assertEqual(timer.current_phase.name, "作業中")
         self.assertEqual(timer.remaining_seconds(now=3605), 2695)
 
     def test_large_time_jump_skips_whole_cycles(self):
         timer = FocusTimer(now=0.0)
         current = 3600 * 100000 + 2701
         self.assertTrue(timer.tick(now=current))
-        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.current_phase.name, "休憩中")
         self.assertEqual(timer.remaining_seconds(now=current), 899)
 
     def test_three_phases_loop_in_order(self):
@@ -144,7 +180,7 @@ class TimerTests(unittest.TestCase):
         timer.pause(now=100)
         timer.skip(now=200)
         self.assertTrue(timer.paused)
-        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.current_phase.name, "休憩中")
         self.assertEqual(timer.remaining_seconds(now=300), 900)
 
     def test_single_phase_repeats(self):
@@ -244,7 +280,7 @@ class TimerTests(unittest.TestCase):
     def test_loop_count_catches_up_after_large_sleep(self):
         timer = FocusTimer(now=0.0)
         timer.tick(now=3600 * 5 + 2701)
-        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.current_phase.name, "休憩中")
         self.assertEqual(timer.loop_number, 6)
 
     def test_reset_loop_count_does_not_restart_running_timer(self):
