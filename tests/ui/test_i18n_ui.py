@@ -60,6 +60,10 @@ class LocalizedAppTests(unittest.TestCase):
         self.assertEqual(self.controller.settings.value("language"), "en")
         self.assertEqual(dialog.language_label.text(), "Language")
         self.assertIn("Settings", dialog.windowTitle())
+        self.assertIn(
+            "Opacity",
+            [label.text() for label in dialog.cards[0].findChildren(QLabel)],
+        )
         self.assertEqual(dialog.cards[0].name.text(), "作業中")
         self.assertEqual(dialog.cards[1].name.text(), "休憩中")
         self.assertTrue(all(c.expand_button.isChecked() for c in dialog.cards))
@@ -159,6 +163,10 @@ class LocalizedAppTests(unittest.TestCase):
         self.assertEqual(self.controller.overlay.phase_config.name, "深い集中")
         self.assertLessEqual(abs(before - self.controller.timer_model.remaining_seconds()), 1)
         dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("ja"))
+        self.assertIn(
+            "不透明度",
+            [label.text() for label in dialog.cards[0].findChildren(QLabel)],
+        )
         self.assertEqual(dialog.cards[0].name.text(), "深い集中")
         self.assertEqual(dialog.cards[1].name.text(), "休憩中")
         self.assertEqual(self.controller.settings.value("language"), "ja")
