@@ -157,7 +157,7 @@ def extract_verified_bundle(archive: Path, output: Path) -> Path:
                 parts = path.parts
                 if (
                     not parts or parts[0] != "FocusLoop"
-                    or any(part in (".", "..") or ":" in part or "\" in part for part in parts)
+                    or any(part in (".", "..") or ":" in part for part in parts)
                     or name.startswith("/") or "\\" in name
                     or stat.S_ISLNK(entry.external_attr >> 16)
                 ):
