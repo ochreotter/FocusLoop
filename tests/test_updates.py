@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
+import subprocess
+import sys
 import json
 import stat
 import tempfile
@@ -175,6 +178,37 @@ class UpdatePreparationTests(unittest.TestCase):
                     updates.prepare_update(release, exe)
             self.assertEqual(exe.read_bytes(), b"untouched")
             self.assertEqual(list(Path(temp).glob(".FocusLoop-stage-*")), [])
+
+
+@unittest.skipUnless(sys.platform == "win32", "Windows helper smoke test only")
+class PowerShellRollbackTests(unittest.TestCase):
+    def test_failed_new_executable_restores_previous_installation(self):
+        """The detached helper must restore old files after a failed restart."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = root / "FocusLoop"
+            staged = root / ".FocusLoop-stage-test"
+            old.mkdir()
+            staged.mkdir()
+            (old / "FocusLoop.exe").write_bytes(b"old executable")
+            (staged / "FocusLoop.exe").write_bytes(b"not a valid Windows executable")
+            helper = root / "apply.ps1"
+            helper.write_text(updates.UPDATER_SCRIPT, encoding="utf-8-sig")
+            logfile = root / "updater.log"
+            env = os.environ.copy()
+            env["FOCUSLOOP_UPDATER_TESTING"] = "1"
+            subprocess.run(
+                [
+                    "powershell.exe", "-NoProfile", "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass", "-File", str(helper),
+                    "-TargetDir", str(old), "-StagedDir", str(staged),
+                    "-ParentPid", "99999999", "-LogFile", str(logfile),
+                ],
+                env=env, check=True, timeout=35,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            self.assertEqual((old / "FocusLoop.exe").read_bytes(), b"old executable")
+            self.assertIn("Previous installation restored", logfile.read_text())
 
 
 if __name__ == "__main__":
