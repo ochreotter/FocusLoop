@@ -359,6 +359,7 @@ class AppRegressionTests(unittest.TestCase):
             self.assertEqual(card.color.currentData(), phase.color)
             self.assertEqual(card.gradient_end.currentData(), phase.gradient_end)
             self.assertEqual(card.gradient.isChecked(), phase.gradient)
+            self.assertEqual(card.gradient_end.isEnabled(), phase.gradient)
             self.assertEqual(card.size.value(), phase.font_size)
             self.assertEqual(card.opacity.value(), phase.opacity)
             self.assertEqual(card.simple.isChecked(), phase.simple)
@@ -371,11 +372,14 @@ class AppRegressionTests(unittest.TestCase):
         first.name.setText("カスタム")
         first.opacity.setValue(67)
         first.position.setCurrentIndex(first.position.findData("top_right"))
+        dialog.cards[1].gradient.setChecked(True)
+        self.assertTrue(dialog.cards[1].gradient_end.isEnabled())
         self.controller.settings.sync()
         reopened = FocusLoopApp(self.app)
         self.assertEqual(reopened.timer_model.phases[0].name, "カスタム")
         self.assertEqual(reopened.timer_model.phases[0].opacity, 67)
         self.assertEqual(reopened.timer_model.phases[0].position, "top_right")
+        self.assertTrue(reopened.timer_model.phases[1].gradient)
         reopened.close()
 
         reset = dialog.findChild(QPushButton, "initialize_button")
@@ -386,6 +390,9 @@ class AppRegressionTests(unittest.TestCase):
         with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
             reset.click()
         self.assertEqual(self.controller.timer_model.phases, expected)
+        self.assertFalse(dialog.cards[1].gradient.isChecked())
+        self.assertFalse(dialog.cards[1].gradient_end.isEnabled())
+        self.assertEqual(dialog.cards[1].gradient_end.currentData(), "white")
         self.assertEqual(
             [(card.name.text(), card.size.value(), card.opacity.value(),
               card.color.currentData(), card.gradient_end.currentData(),
