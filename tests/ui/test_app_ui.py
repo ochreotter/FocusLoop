@@ -260,6 +260,44 @@ class AppRegressionTests(unittest.TestCase):
         self.directory.cleanup()
         self.app.processEvents()
 
+    def test_modern_ring_30fps_timer_stops_when_paused_simple_or_hidden(self):
+        self.assertEqual(self.controller.ring_timer.interval(), 33)
+        self.assertEqual(
+            self.controller.ring_timer.timerType(), Qt.TimerType.PreciseTimer
+        )
+        self.assertFalse(self.controller.ring_timer.isActive())
+        self.controller.overlay.show()
+        self.controller.update()
+        self.assertTrue(self.controller.ring_timer.isActive())
+
+        with patch.object(self.controller.overlay, "set_ring_progress") as animate:
+            self.controller._animate_ring()
+            animate.assert_called_once()
+            self.assertGreaterEqual(animate.call_args.args[0], 0.0)
+            self.assertLessEqual(animate.call_args.args[0], 1.0)
+
+        self.controller.toggle_pause()
+        self.assertFalse(self.controller.ring_timer.isActive())
+        self.controller.toggle_pause()
+        self.assertTrue(self.controller.ring_timer.isActive())
+
+        self.controller.show_settings()
+        card = self.controller.settings_dialog.cards[0]
+        card.simple.setChecked(True)
+        self.assertFalse(self.controller.ring_timer.isActive())
+        card.simple.setChecked(False)
+        self.assertTrue(self.controller.ring_timer.isActive())
+
+        self.controller.overlay.hide()
+        self.controller._animate_ring()
+        self.assertFalse(self.controller.ring_timer.isActive())
+
+        self.controller.overlay.show()
+        self.controller.update()
+        self.assertTrue(self.controller.ring_timer.isActive())
+        self.controller.close()
+        self.assertFalse(self.controller.ring_timer.isActive())
+
     def test_per_phase_display_position_and_topmost_switch_on_skip(self):
         self.controller.overlay.show()
         self.controller.show_settings()
