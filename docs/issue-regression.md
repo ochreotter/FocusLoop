@@ -1,6 +1,6 @@
 # FocusLoop 現行仕様・Issue回帰テスト対応表
 
-この表は2026-11-23のIssue #5〜#45を検査した結果。**後続Issueで上書きされた古いUI要件を再検証しない**。それ以外の操作・保存・描画・CIを、PythonロジックテストとWindows Qtオフスクリーンテストで確認する。
+この表は2026-11-23のIssue #5〜#57を検査した結果。**後続Issueで上書きされた古いUI要件を再検証しない**。それ以外の操作・保存・描画・CIを、PythonロジックテストとWindows Qtオフスクリーンテストで確認する。
 
 ## Issue別チェック一覧
 
@@ -43,6 +43,7 @@
 | #53 | 8〜300pt・設定画面で一時停止/再開・Modernの上部にフェーズ名、下部にLOOP | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py`, `tests/ui/test_overlay_contrast.py` |
 | #55 | フェーズ別非表示チェック、切替時の自動再表示、裏側のタイマー・トレイ継続、初期化/保存/旧設定との互換 | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
 | #56 | LOOPと各リセット操作の設定画面フッターへの移動、「設定初期化」への名称変更 | `tests/ui/test_app_ui.py` |
+| #57 | 参照画像どおりの作業中/休憩中の初期値（50/300pt、30/20%、アンバー→ローズ・ミント→白、左下/中央）とフッター左右グループ | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py` |
 
 ## リファクタリング判断
 
