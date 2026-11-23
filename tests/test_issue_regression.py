@@ -9,7 +9,7 @@ from pathlib import Path
 import unittest
 
 from focusloop.timer import (
-    COLOR_HEX, COLOR_PRESETS, DEFAULT_FONT_SIZE, FocusTimer, PhaseConfig,
+    COLOR_HEX, COLOR_PRESETS, FocusTimer, PhaseConfig,
     default_phases, phases_from_json, phases_to_json,
 )
 
