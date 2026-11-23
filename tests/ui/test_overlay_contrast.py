@@ -75,6 +75,28 @@ class ContrastTextTests(unittest.TestCase):
                 self.assertTrue(found_foreground, f"{key}: main text missing")
                 self.assertTrue(found_shadow, f"{key}: shadow missing")
 
+    def test_modern_title_is_above_clock_and_loop_is_below(self):
+        overlay = Overlay(PhaseConfig("作業", 45, font_size=300))
+        overlay.show()
+        self.app.processEvents()
+        with patch("focusloop.overlay.draw_shadowed_text", wraps=draw_shadowed_text) as draw:
+            image = overlay.grab()
+            self.assertFalse(image.isNull())
+            self.assertEqual(draw.call_count, 3)
+            calls = draw.call_args_list
+            self.assertEqual(calls[0].args[2], "LOOP 01")
+            self.assertEqual(calls[1].args[2], "45:00")
+            self.assertEqual(calls[2].args[2], "作業")
+            loop_y = calls[0].args[1].center().y()
+            clock_y = calls[1].args[1].center().y()
+            title_y = calls[2].args[1].center().y()
+            self.assertLess(title_y, clock_y)
+            self.assertLess(clock_y, loop_y)
+        screen = self.app.primaryScreen().availableGeometry()
+        self.assertTrue(screen.contains(overlay.geometry()))
+        self.assertLessEqual(overlay._render_font_size, 300)
+        overlay.close()
+
     def test_simple_and_modern_draw_text_with_shared_shadow(self):
         for style, expected in (("simple", 1), ("modern", 3)):
             with self.subTest(style=style):
