@@ -8,10 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtCore import QPoint, QPointF, QSettings, Qt
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
-    QApplication, QAbstractButton, QDialogButtonBox, QMessageBox,
+    QApplication, QAbstractButton, QComboBox, QDialogButtonBox, QMessageBox,
     QLabel, QPushButton, QScrollArea, QSystemTrayIcon,
 )
 
@@ -115,6 +116,53 @@ class CardSettingsTests(unittest.TestCase):
         self.assertTrue(first.body.isVisible())
         self.assertEqual(len(self.events), 1)
         self.assertTrue(second.body.isVisible())
+
+    def test_wheel_scroll_ignores_dropdowns_and_duration_without_saving(self):
+        """Scrolling over form controls must not change values or reset the timer."""
+        first = self.dialog.cards[0]
+        first.gradient.setChecked(True)
+        self.events.clear()
+        controls = (
+            self.dialog.language_combo,
+            first.color,
+            first.gradient_end,
+            first.position,
+            first.minutes,
+        )
+        for widget in controls:
+            with self.subTest(widget=widget.objectName() or type(widget).__name__):
+                widget.setFocus()
+                original = (
+                    widget.currentIndex() if isinstance(widget, QComboBox)
+                    else widget.value()
+                )
+                local = QPointF(widget.rect().center())
+                wheel = QWheelEvent(
+                    local,
+                    QPointF(widget.mapToGlobal(widget.rect().center())),
+                    QPoint(0, 0),
+                    QPoint(0, -120),
+                    Qt.MouseButton.NoButton,
+                    Qt.KeyboardModifier.NoModifier,
+                    Qt.ScrollPhase.ScrollUpdate,
+                    False,
+                )
+                QApplication.sendEvent(widget, wheel)
+                actual = (
+                    widget.currentIndex() if isinstance(widget, QComboBox)
+                    else widget.value()
+                )
+                self.assertEqual(actual, original)
+        self.assertEqual(self.events, [])
+
+        # Intentional keyboard and direct edits still work as before.
+        first.position.setFocus()
+        QTest.keyClick(first.position, Qt.Key.Key_Down)
+        self.assertEqual(first.position.currentIndex(), 1)
+        first.minutes.setValue(50)
+        self.assertEqual(first.minutes.value(), 50)
+        self.assertTrue(self.events)
+        self.assertTrue(all(restart is False for restart in self.events))
 
     def test_all_buttons_and_checkboxes_show_pointing_hand(self):
         for button in self.dialog.findChildren(QAbstractButton):

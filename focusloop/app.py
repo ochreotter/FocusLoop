@@ -78,9 +78,23 @@ def color_swatch_icon(hex_value: str) -> QIcon:
     return QIcon(image)
 
 
+class NoWheelComboBox(QComboBox):
+    """Ignore accidental wheel selection changes; let the parent page scroll."""
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 - Qt API
+        event.ignore()
+
+
+class NoWheelSpinBox(QSpinBox):
+    """Prevent accidental duration edits and timer restarts while scrolling."""
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 - Qt API
+        event.ignore()
+
+
 def color_combo(parent: QWidget, selected: str, language: str = "ja") -> QComboBox:
     """Build identical main/secondary palettes with visible color swatches."""
-    combo = QComboBox(parent)
+    combo = NoWheelComboBox(parent)
     combo.setIconSize(QSize(18, 18))
     for key, label, hex_value in COLOR_PRESETS:
         combo.addItem(color_swatch_icon(hex_value), tr(label, language), key)
@@ -239,7 +253,7 @@ class PhaseCard(QFrame):
         self.name.setPlaceholderText(tr("フェーズ名", owner.language))
         field(0, 0, "フェーズ名", self.name)
 
-        self.minutes = QSpinBox(self.body)
+        self.minutes = NoWheelSpinBox(self.body)
         self.minutes.setRange(1, 240)
         self.minutes.setSuffix(tr(" 分", owner.language))
         self.minutes.setValue(int(values["minutes"]))
@@ -304,7 +318,7 @@ class PhaseCard(QFrame):
         window_layout.addStretch()
         field(3, 1, "ウィンドウ", window_options)
 
-        self.position = QComboBox(self.body)
+        self.position = NoWheelComboBox(self.body)
         for label, value in POSITIONS:
             self.position.addItem(tr(label, owner.language), value)
         self.position.setCurrentIndex(max(0, self.position.findData(values["position"])))
@@ -453,7 +467,7 @@ class SettingsDialog(QDialog):
         self._rendering = False
         self._paused = timer.paused
         self.language_label = QLabel(tr("言語", self.language), self)
-        self.language_combo = QComboBox(self)
+        self.language_combo = NoWheelComboBox(self)
         self.language_combo.setObjectName("language_combo")
         self.language_combo.addItem("日本語", "ja")
         self.language_combo.addItem("English", "en")
