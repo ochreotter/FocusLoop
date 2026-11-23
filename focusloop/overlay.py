@@ -13,37 +13,25 @@ from .timer import COLOR_HEX, MIN_FONT_SIZE, PhaseConfig
 DISPLAY_STYLES = (("Modern", "modern"), ("Simple", "simple"))
 
 
-def contrasting_outline_color(foreground: QColor) -> QColor:
-    """Pick the high-contrast outline by WCAG relative luminance.
-
-    A white foreground receives a dark stroke; a black foreground receives
-    a light stroke. All other palette colors are handled automatically.
-    """
-    def linear(channel: float) -> float:
-        return channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
-
-    luminance = (
-        0.2126 * linear(foreground.redF())
-        + 0.7152 * linear(foreground.greenF())
-        + 0.0722 * linear(foreground.blueF())
-    )
-    # Black wins the WCAG contrast-ratio comparison above this point.
-    outline = QColor("#000000" if luminance >= 0.179 else "#FFFFFF")
-    outline.setAlpha(205)
-    return outline
+def contrasting_shadow_color(foreground: QColor) -> QColor:
+    """Choose a dark or light shadow for all seven palette colors."""
+    channels = [
+        channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in (foreground.redF(), foreground.greenF(), foreground.blueF())
+    ]
+    luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+    # A contrast-ratio comparison with black and white crosses at 0.179.
+    shadow = QColor("#000000" if luminance >= 0.179 else "#FFFFFF")
+    shadow.setAlpha(225)
+    return shadow
 
 
-def draw_outlined_text(
+def draw_shadowed_text(
     painter: QPainter, bounds: QRect | QRectF, text: str, foreground: QColor,
 ) -> None:
-    """Draw a subtle one-pixel text outline that respects painter opacity."""
-    painter.setPen(contrasting_outline_color(foreground))
-    for dx, dy in (
-        (-1, -1), (0, -1), (1, -1),
-        (-1, 0),           (1, 0),
-        (-1, 1),  (0, 1),  (1, 1),
-    ):
-        painter.drawText(bounds.translated(dx, dy), Qt.AlignmentFlag.AlignCenter, text)
+    """Use a subtle two-pixel drop shadow, not an eight-way text outline."""
+    painter.setPen(contrasting_shadow_color(foreground))
+    painter.drawText(bounds.translated(2, 2), Qt.AlignmentFlag.AlignCenter, text)
     painter.setPen(foreground)
     painter.drawText(bounds, Qt.AlignmentFlag.AlignCenter, text)
 
@@ -182,7 +170,7 @@ class Overlay(QWidget):
         font = QFont("Consolas", self._render_font_size)
         font.setBold(True)
         painter.setFont(font)
-        draw_outlined_text(
+        draw_shadowed_text(
             painter, self.rect(), self.clock_text,
             QColor(COLOR_HEX[self.phase_config.color]),
         )
@@ -219,7 +207,7 @@ class Overlay(QWidget):
         loop_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, max(1.0, side * 0.004))
         painter.setFont(loop_font)
         loop_rect = QRectF(x + side * 0.18, y + side * 0.27, side * 0.64, side * 0.11)
-        draw_outlined_text(
+        draw_shadowed_text(
             painter, loop_rect, f"LOOP {self.loop_number:02d}", QColor("#E1E6F0"),
         )
 
@@ -227,7 +215,7 @@ class Overlay(QWidget):
         time_font.setBold(True)
         painter.setFont(time_font)
         time_rect = QRectF(x + side * 0.07, y + side * 0.38, side * 0.86, side * 0.25)
-        draw_outlined_text(
+        draw_shadowed_text(
             painter, time_rect, self.clock_text,
             QColor(COLOR_HEX[self.phase_config.color]),
         )
@@ -245,4 +233,4 @@ class Overlay(QWidget):
         label = QFontMetrics(name_font).elidedText(
             self.phase_config.name, Qt.TextElideMode.ElideRight, max(1, round(badge.width() - 14))
         )
-        draw_outlined_text(painter, badge, label, QColor("#F5F7FC"))
+        draw_shadowed_text(painter, badge, label, QColor("#F5F7FC"))
