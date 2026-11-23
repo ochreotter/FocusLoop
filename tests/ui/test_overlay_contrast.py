@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor, QFont, QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
 from focusloop.overlay import (
-    Overlay, contrasting_outline_color, draw_outlined_text,
+    Overlay, contrasting_shadow_color, draw_shadowed_text,
 )
 from focusloop.timer import COLOR_HEX, PhaseConfig
 
@@ -18,20 +18,20 @@ class ContrastTextTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_white_uses_black_outline_black_uses_white(self):
-        self.assertEqual(contrasting_outline_color(QColor(COLOR_HEX["white"])).name(), "#000000")
-        self.assertEqual(contrasting_outline_color(QColor(COLOR_HEX["black"])).name(), "#ffffff")
+    def test_white_uses_black_shadow_black_uses_white(self):
+        self.assertEqual(contrasting_shadow_color(QColor(COLOR_HEX["white"])).name(), "#000000")
+        self.assertEqual(contrasting_shadow_color(QColor(COLOR_HEX["black"])).name(), "#ffffff")
 
-    def test_every_preset_chooses_contrasting_outline(self):
+    def test_every_preset_chooses_contrasting_shadow(self):
         for key, value in COLOR_HEX.items():
             with self.subTest(color=key):
-                result = contrasting_outline_color(QColor(value))
+                result = contrasting_shadow_color(QColor(value))
                 self.assertIn(result.name(), ("#000000", "#ffffff"))
                 self.assertGreater(result.alpha(), 0)
                 if key != "black":
                     self.assertEqual(result.name(), "#000000")
 
-    def test_actual_pixels_contain_foreground_and_outline(self):
+    def test_actual_pixels_contain_foreground_and_shadow(self):
         # Draw transparent images rather than relying on the OS desktop color.
         for key in ("white", "black", "mint", "sky", "amber", "rose", "violet"):
             with self.subTest(color=key):
@@ -41,15 +41,15 @@ class ContrastTextTests(unittest.TestCase):
                 font = QFont("Consolas", 50)
                 font.setBold(True)
                 painter.setFont(font)
-                draw_outlined_text(
+                draw_shadowed_text(
                     painter, QRect(0, 0, 240, 110), "88", QColor(COLOR_HEX[key]),
                 )
                 painter.end()
 
                 fg = QColor(COLOR_HEX[key])
-                stroke = contrasting_outline_color(fg)
+                shadow = contrasting_shadow_color(fg)
                 found_foreground = False
-                found_stroke = False
+                found_shadow = False
                 for y in range(canvas.height()):
                     for x in range(canvas.width()):
                         c = canvas.pixelColor(x, y)
@@ -63,25 +63,25 @@ class ContrastTextTests(unittest.TestCase):
                         ):
                             found_foreground = True
                         if (
-                            abs(c.red() - stroke.red()) < 8
-                            and abs(c.green() - stroke.green()) < 8
-                            and abs(c.blue() - stroke.blue()) < 8
+                            abs(c.red() - shadow.red()) < 8
+                            and abs(c.green() - shadow.green()) < 8
+                            and abs(c.blue() - shadow.blue()) < 8
                         ):
-                            found_stroke = True
-                        if found_foreground and found_stroke:
+                            found_shadow = True
+                        if found_foreground and found_shadow:
                             break
-                    if found_foreground and found_stroke:
+                    if found_foreground and found_shadow:
                         break
                 self.assertTrue(found_foreground, f"{key}: main text missing")
-                self.assertTrue(found_stroke, f"{key}: outline missing")
+                self.assertTrue(found_shadow, f"{key}: shadow missing")
 
-    def test_simple_and_modern_draw_text_with_shared_outline(self):
+    def test_simple_and_modern_draw_text_with_shared_shadow(self):
         for style, expected in (("simple", 1), ("modern", 3)):
             with self.subTest(style=style):
                 overlay = Overlay("bottom_left", PhaseConfig("作業", 45, color="black"), style)
                 overlay.show()
                 self.app.processEvents()
-                with patch("focusloop.overlay.draw_outlined_text", wraps=draw_outlined_text) as draw:
+                with patch("focusloop.overlay.draw_shadowed_text", wraps=draw_shadowed_text) as draw:
                     image = overlay.grab()
                     self.assertFalse(image.isNull())
                     self.assertEqual(draw.call_count, expected)
