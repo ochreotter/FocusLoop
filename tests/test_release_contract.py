@@ -47,14 +47,24 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("ドラフトRelease", release_docs)
 
     def test_user_guide_has_current_terminology(self):
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertNotIn("Modern", readme)
-        self.assertNotIn("透過率", readme)
-        self.assertNotIn("Working / On Break", readme)
-        self.assertIn("フェーズ名は標準名・独自名を問わず一切翻訳しません", readme)
-        self.assertIn("不透明度", readme)
-        self.assertIn("休憩中", readme)
-        self.assertIn("グラデーション | ON（ローズ） | OFF", readme)
+        english = (ROOT / "README.md").read_text(encoding="utf-8")
+        japanese = (ROOT / "README.ja.md").read_text(encoding="utf-8")
+        self.assertNotIn("Modern", english)
+        self.assertNotIn("Modern", japanese)
+        self.assertNotIn("透過率", japanese)
+        self.assertNotIn("Working / On Break", japanese)
+        self.assertIn("フェーズ名は標準名・独自名を問わず一切翻訳しません", japanese)
+        self.assertIn("不透明度", japanese)
+        self.assertIn("休憩中", japanese)
+        self.assertIn("グラデーション | ON（ローズ） | OFF", japanese)
+        self.assertIn("Phase names are never automatically translated", english)
+        self.assertIn("opacity", english.lower())
+        self.assertIn("[日本語](README.ja.md)", english)
+        self.assertIn("[English](README.md)", japanese)
+        for readme in (english, japanese):
+            self.assertIn("docs/assets/focusloop-demo.gif", readme)
+        self.assertIn("docs/assets/focusloop-settings-en.png", english)
+        self.assertIn("docs/assets/focusloop-settings-ja.png", japanese)
 
     def test_windows_zip_includes_dlls_notices_and_dependency_list(self):
         with tempfile.TemporaryDirectory() as dirname:
