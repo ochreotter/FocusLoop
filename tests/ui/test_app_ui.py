@@ -8,10 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication, QAbstractButton, QDialogButtonBox, QMessageBox,
-    QPushButton, QScrollArea, QSystemTrayIcon,
+    QLabel, QPushButton, QScrollArea, QSystemTrayIcon,
 )
 
 from focusloop.app import FocusLoopApp, PhaseCard, PhaseDragHandle, SettingsDialog
@@ -37,7 +38,7 @@ class CardSettingsTests(unittest.TestCase):
         self.dialog.close()
         self.app.processEvents()
 
-    def test_cards_show_summary_and_only_active_phase_is_expanded(self):
+    def test_card_header_design_click_targets_and_multiple_open(self):
         self.assertEqual(len(self.dialog.cards), 2)
         self.assertIsInstance(self.dialog.scroll, QScrollArea)
         self.assertEqual(self.dialog.scroll.horizontalScrollBarPolicy(),
@@ -45,20 +46,57 @@ class CardSettingsTests(unittest.TestCase):
         first, second = self.dialog.cards
         self.assertIsInstance(first, PhaseCard)
         self.assertTrue(first.expand_button.isChecked())
+        self.assertEqual(first.expand_button.text(), "∧")
         self.assertFalse(second.expand_button.isChecked())
+        self.assertEqual(second.expand_button.text(), "∨")
         self.assertIn("45分", first.summary.text())
         self.assertIn("左下", first.summary.text())
         self.assertIn("最前面ON", first.summary.text())
-        self.assertIn("#F5F7FC", first.main_swatch.styleSheet())
-        self.assertTrue(first.sub_swatch.isVisible())
+        self.assertIn("ホワイト", first.summary.text())
         self.assertIn("標準", first.summary.text())
+        self.assertFalse(hasattr(first, "main_swatch"))
+        self.assertFalse(hasattr(first, "sub_swatch"))
+        self.assertTrue(first.title.font().bold())
+        self.assertGreaterEqual(first.title.font().pointSize(), 13)
+        self.assertIn("palette(window)", first.header_widget.styleSheet())
+        self.assertIn("palette(base)", first.body.styleSheet())
+        self.assertNotEqual(first.header_widget.styleSheet(), first.body.styleSheet())
+        self.assertEqual(first.simple.text(), "Simple")
+        self.assertFalse(any(
+            item.text() == "フェーズ操作" for item in first.findChildren(QLabel)
+        ))
         self.assertIsInstance(first.drag_handle, PhaseDragHandle)
         self.assertTrue(first.acceptDrops())
 
+        # Two cards can remain open, and opening/closing never saves settings.
         second.expand_button.click()
         self.assertTrue(second.body.isVisible())
+        self.assertTrue(first.body.isVisible())
+        self.assertEqual(second.expand_button.text(), "∧")
+
+        # Clicking the entire header background, title and summary toggles.
+        QTest.mouseClick(first.header_widget, Qt.MouseButton.LeftButton)
+        self.assertFalse(first.expand_button.isChecked())
         self.assertFalse(first.body.isVisible())
-        self.assertEqual(len(self.events), 0)
+        self.assertTrue(second.body.isVisible())
+        self.assertEqual(first.expand_button.text(), "∨")
+        QTest.mouseClick(first.title, Qt.MouseButton.LeftButton)
+        self.assertTrue(first.expand_button.isChecked())
+        QTest.mouseClick(first.summary, Qt.MouseButton.LeftButton)
+        self.assertFalse(first.expand_button.isChecked())
+        QTest.mouseClick(first.header_widget, Qt.MouseButton.LeftButton)
+        self.assertTrue(first.expand_button.isChecked())
+
+        # Background of the expanded editor is clickable, but inputs aren't.
+        QTest.mouseClick(first.body, Qt.MouseButton.LeftButton, pos=QPoint(3, 3))
+        self.assertFalse(first.body.isVisible())
+        first.expand_button.click()
+        self.assertTrue(first.body.isVisible())
+        first.simple.click()
+        self.assertTrue(first.body.isVisible())
+        QTest.mouseClick(first.drag_handle, Qt.MouseButton.LeftButton)
+        self.assertTrue(first.body.isVisible())
+        self.assertEqual(len(self.events), 1)
 
     def test_all_buttons_and_checkboxes_show_pointing_hand(self):
         for button in self.dialog.findChildren(QAbstractButton):
@@ -113,11 +151,9 @@ class CardSettingsTests(unittest.TestCase):
         self.assertIs(container.layout().itemAt(1).widget(), card.gradient_end)
         card.gradient_end.setCurrentIndex(card.gradient_end.findData("black"))
         card.gradient.setChecked(False)
-        self.assertFalse(card.sub_swatch.isVisible())
         self.assertFalse(card.gradient_end.isEnabled())
         self.assertEqual(self.dialog.result_phases[0].gradient_end, "black")
         card.gradient.setChecked(True)
-        self.assertTrue(card.sub_swatch.isVisible())
         self.assertTrue(card.gradient_end.isEnabled())
 
     def test_add_and_reorder_keeps_all_per_phase_settings(self):
@@ -133,6 +169,7 @@ class CardSettingsTests(unittest.TestCase):
         self.assertFalse(self.dialog.cards[-1].simple.isChecked())
         self.assertTrue(self.dialog.cards[-1].topmost.isChecked())
         self.assertTrue(self.dialog.cards[-1].expand_button.isChecked())
+        self.assertTrue(self.dialog.cards[0].expand_button.isChecked())
         self.dialog._reorder_cards(first, self.dialog.cards[-1])
         self.assertEqual([c.name.text() for c in self.dialog.cards], ["休憩", "新しいフェーズ", "作業"])
         self.assertEqual(self.dialog.result_phases[-1].position, "top_right")
@@ -157,6 +194,20 @@ class CardSettingsTests(unittest.TestCase):
             self.dialog.cards[0].delete_button.click()
             info.assert_called_once()
         self.assertEqual(len(self.dialog.cards), 1)
+
+    def test_multicard_expansion_persists_when_deleting_another_card(self):
+        first, second = self.dialog.cards
+        second.expand_button.click()
+        self.assertTrue(first.expand_button.isChecked())
+        self.assertTrue(second.expand_button.isChecked())
+        with patch.object(
+            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
+        ):
+            first.delete_button.click()
+        self.assertEqual(len(self.dialog.cards), 1)
+        self.assertEqual(self.dialog.cards[0].name.text(), "休憩")
+        self.assertTrue(self.dialog.cards[0].expand_button.isChecked())
+        self.assertTrue(self.dialog.cards[0].body.isVisible())
 
     def test_delete_button_is_compact_and_muted(self):
         card = self.dialog.cards[0]

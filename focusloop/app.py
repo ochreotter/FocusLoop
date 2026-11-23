@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from PySide6.QtCore import QMimeData, QPoint, QSize, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QMimeData, QPoint, QSize, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QDrag, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -35,7 +35,6 @@ from .geometry import tray_menu_position
 from .icons import clock_icon
 from .overlay import Overlay
 from .timer import (
-    COLOR_HEX,
     COLOR_PRESETS,
     DEFAULT_FONT_SIZE,
     MAX_FONT_SIZE,
@@ -153,42 +152,51 @@ class PhaseCard(QFrame):
         self.setAcceptDrops(True)
         self.setStyleSheet(
             "QFrame#phase_card { border: 1px solid palette(mid); "
-            "border-radius: 8px; margin: 2px; }"
+            "background-color: palette(base); border-radius: 8px; margin: 2px; }"
         )
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(12, 8, 12, 10)
-        outer.setSpacing(8)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self._click_surfaces: list[QWidget] = []
 
-        header = QHBoxLayout()
+        # The entire header is a toggle target; drag/reorder controls remain independent.
+        self.header_widget = QWidget(self)
+        self.header_widget.setObjectName("phase_header")
+        self.header_widget.setStyleSheet(
+            "QWidget#phase_header { background-color: palette(window); "
+            "border-bottom: 1px solid palette(mid); "
+            "border-top-left-radius: 7px; border-top-right-radius: 7px; }"
+        )
+        header = QHBoxLayout(self.header_widget)
+        header.setContentsMargins(12, 10, 12, 10)
+        header.setSpacing(9)
         self.drag_handle = PhaseDragHandle(self)
-        self.title = QLabel(self)
+        self.title = QLabel(self.header_widget)
         self.title.setTextFormat(Qt.TextFormat.PlainText)
-        self.title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.summary = QLabel(self)
+        self.title.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        heading_font = self.title.font()
+        heading_font.setBold(True)
+        heading_font.setPointSize(max(13, heading_font.pointSize() + 3))
+        self.title.setFont(heading_font)
+        self.summary = QLabel(self.header_widget)
         self.summary.setTextFormat(Qt.TextFormat.PlainText)
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: palette(mid);")
         caption = QVBoxLayout()
-        caption.setSpacing(2)
+        caption.setSpacing(3)
         caption.addWidget(self.title)
-        summary_row = QHBoxLayout()
-        summary_row.setSpacing(6)
-        self.main_swatch = QLabel(self)
-        self.main_swatch.setFixedSize(12, 12)
-        self.sub_swatch = QLabel(self)
-        self.sub_swatch.setFixedSize(12, 12)
-        summary_row.addWidget(self.main_swatch)
-        summary_row.addWidget(self.sub_swatch)
-        summary_row.addWidget(self.summary, 1)
-        caption.addLayout(summary_row)
-        self.move_up = QToolButton(self)
+        caption.addWidget(self.summary)
+        self.move_up = QToolButton(self.header_widget)
         self.move_up.setText("↑")
         self.move_up.setToolTip("上へ移動")
-        self.move_down = QToolButton(self)
+        self.move_down = QToolButton(self.header_widget)
         self.move_down.setText("↓")
         self.move_down.setToolTip("下へ移動")
-        self.expand_button = QToolButton(self)
-        self.expand_button.setText("設定を開く")
+        self.expand_button = QToolButton(self.header_widget)
+        self.expand_button.setText("∨")
+        self.expand_button.setToolTip("カードを開く／閉じる")
+        self.expand_button.setAccessibleName("フェーズ設定の開閉")
+        self.expand_button.setFixedSize(32, 32)
         self.expand_button.setCheckable(True)
         self.expand_button.toggled.connect(self._toggle_expanded)
         self.move_up.clicked.connect(lambda: owner._shift_card(self, -1))
@@ -198,11 +206,16 @@ class PhaseCard(QFrame):
         header.addWidget(self.move_up)
         header.addWidget(self.move_down)
         header.addWidget(self.expand_button)
-        outer.addLayout(header)
+        outer.addWidget(self.header_widget)
 
         self.body = QWidget(self)
+        self.body.setObjectName("phase_body")
+        self.body.setStyleSheet(
+            "QWidget#phase_body { background-color: palette(base); "
+            "border-bottom-left-radius: 7px; border-bottom-right-radius: 7px; }"
+        )
         fields = QGridLayout(self.body)
-        fields.setContentsMargins(4, 4, 4, 4)
+        fields.setContentsMargins(16, 12, 16, 14)
         fields.setHorizontalSpacing(18)
         fields.setVerticalSpacing(9)
         fields.setColumnStretch(0, 1)
@@ -213,9 +226,11 @@ class PhaseCard(QFrame):
             column = QVBoxLayout(area)
             column.setContentsMargins(0, 0, 0, 0)
             column.setSpacing(3)
-            column.addWidget(QLabel(label, area))
+            label_widget = QLabel(label, area)
+            column.addWidget(label_widget)
             column.addWidget(editor)
             fields.addWidget(area, row, col)
+            self._click_surfaces.extend((area, label_widget))
 
         self.name = QLineEdit(str(values["name"]), self.body)
         self.name.setMaxLength(40)
@@ -269,7 +284,7 @@ class PhaseCard(QFrame):
         opacity_layout.addWidget(self.opacity_label)
         field(2, 1, "透過率", opacity_row)
 
-        self.simple = QCheckBox("Simple（OFFで標準表示）", self.body)
+        self.simple = QCheckBox("Simple", self.body)
         self.simple.setChecked(bool(values["simple"]))
         field(3, 0, "表示モード", self.simple)
 
@@ -299,10 +314,18 @@ class PhaseCard(QFrame):
         self.delete_button.setToolTip("フェーズを削除（確認あり）")
         self.delete_button.clicked.connect(lambda: owner._confirm_delete_card(self))
         delete_layout.addWidget(self.delete_button)
-        field(4, 1, "フェーズ操作", delete_area)
+        fields.addWidget(delete_area, 4, 1)
+        self._click_surfaces.append(delete_area)
 
         outer.addWidget(self.body)
         self.body.hide()
+        self._click_surfaces.extend(
+            (self.header_widget, self.title, self.summary, self.body)
+        )
+        for surface in self._click_surfaces:
+            surface.setCursor(Qt.CursorShape.PointingHandCursor)
+            surface.installEventFilter(self)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         for widget in (
             self.name, self.minutes, self.color, self.gradient, self.gradient_end,
             self.size, self.opacity, self.simple, self.position, self.topmost,
@@ -340,15 +363,6 @@ class PhaseCard(QFrame):
         colors = dict((key, label) for key, label, _hex in COLOR_PRESETS)
         positions = dict((value, label) for label, value in POSITIONS)
         main = colors.get(self.color.currentData(), "?")
-        self.main_swatch.setStyleSheet(
-            f"background: {COLOR_HEX[self.color.currentData()]}; "
-            "border: 1px solid #7D8592; border-radius: 6px;"
-        )
-        self.sub_swatch.setStyleSheet(
-            f"background: {COLOR_HEX[self.gradient_end.currentData()]}; "
-            "border: 1px solid #7D8592; border-radius: 6px;"
-        )
-        self.sub_swatch.setVisible(self.gradient.isChecked())
         secondary = (
             f" → {colors.get(self.gradient_end.currentData(), '?')}"
             if self.gradient.isChecked() else ""
@@ -366,9 +380,25 @@ class PhaseCard(QFrame):
 
     def _toggle_expanded(self, enabled: bool) -> None:
         self.body.setVisible(enabled)
-        self.expand_button.setText("閉じる" if enabled else "設定を開く")
-        if enabled:
-            self.owner._expand_card(self)
+        self.expand_button.setText("∧" if enabled else "∨")
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        # Only passive surfaces toggle; buttons and editors keep their own clicks.
+        if (
+            watched in self._click_surfaces
+            and event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self.expand_button.toggle()
+            return True
+        return super().eventFilter(watched, event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.expand_button.toggle()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt API
         if event.mimeData().hasFormat("application/x-focusloop-phase"):
@@ -456,7 +486,10 @@ class SettingsDialog(QDialog):
         layout.addLayout(footer)
         self._set_button_cursors()
 
-    def _render_cards(self, rows: list[dict], expanded_index: int = 0) -> None:
+    def _render_cards(
+        self, rows: list[dict], expanded_index: int = 0,
+        expanded_indices: set[int] | None = None,
+    ) -> None:
         self._rendering = True
         try:
             for card in self.cards:
@@ -469,8 +502,12 @@ class SettingsDialog(QDialog):
                 self.cards.append(card)
                 self.cards_layout.insertWidget(i, card)
                 card.show()
-            if self.cards:
-                self.cards[max(0, min(expanded_index, len(self.cards) - 1))].expand_button.setChecked(True)
+            open_indices = (
+                {expanded_index} if expanded_indices is None else expanded_indices
+            )
+            for index in open_indices:
+                if 0 <= index < len(self.cards):
+                    self.cards[index].expand_button.setChecked(True)
             self._update_move_buttons()
         finally:
             self._rendering = False
@@ -479,11 +516,6 @@ class SettingsDialog(QDialog):
     def _set_button_cursors(self) -> None:
         for button in self.findChildren(QAbstractButton):
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def _expand_card(self, selected: PhaseCard) -> None:
-        for card in self.cards:
-            if card is not selected and card.expand_button.isChecked():
-                card.expand_button.setChecked(False)
 
     def _update_move_buttons(self) -> None:
         for i, card in enumerate(self.cards):
@@ -530,14 +562,23 @@ class SettingsDialog(QDialog):
             f"「{card.name.text()}」を削除しますか？",
             "この操作は取り消せません。", "削除する",
         ):
-            rows = [other.snapshot() for other in self.cards if other is not card]
-            self._render_cards(rows)
+            remaining = [other for other in self.cards if other is not card]
+            rows = [other.snapshot() for other in remaining]
+            expanded = {
+                i for i, other in enumerate(remaining)
+                if other.expand_button.isChecked()
+            }
+            self._render_cards(rows, expanded_indices=expanded)
             self._notify_change(force_restart=True)
 
     def _add_phase(self) -> None:
         rows = [card.snapshot() for card in self.cards]
+        expanded = {
+            i for i, card in enumerate(self.cards) if card.expand_button.isChecked()
+        }
         rows.append(asdict(PhaseConfig("新しいフェーズ", 5, color="sky")))
-        self._render_cards(rows, len(rows) - 1)
+        expanded.add(len(rows) - 1)
+        self._render_cards(rows, expanded_indices=expanded)
         self._notify_change(force_restart=True)
         self.scroll.verticalScrollBar().setValue(self.scroll.verticalScrollBar().maximum())
 
