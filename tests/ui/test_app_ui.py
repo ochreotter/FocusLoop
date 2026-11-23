@@ -8,8 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QDialogButtonBox, QSlider, QSystemTrayIcon
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtWidgets import QApplication, QDialogButtonBox, QPushButton, QSlider, QSystemTrayIcon
 
 from focusloop.app import FocusLoopApp, SettingsDialog
 from focusloop.icons import clock_icon, clock_image
@@ -23,7 +23,7 @@ class SettingsUITests(unittest.TestCase):
         cls.qt_app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        self.dialog = SettingsDialog(None, FocusTimer(), "bottom_left")
+        self.dialog = SettingsDialog(None, FocusTimer(), "bottom_left", "modern")
         self.updates = []
         self.dialog.changed.connect(lambda _dialog, reorder: self.updates.append(reorder))
         self.dialog.show()
@@ -104,6 +104,29 @@ class SettingsUITests(unittest.TestCase):
         )
         self.assertEqual(self.updates[-1], True)
 
+    def test_style_switch_is_immediate_and_does_not_erase_phases(self):
+        self.assertEqual(self.dialog.style_combo.currentData(), "modern")
+        self.dialog.style_combo.setCurrentIndex(
+            self.dialog.style_combo.findData("simple")
+        )
+        self.assertEqual(self.dialog.style_combo.currentData(), "simple")
+        self.assertEqual(self.dialog.table.rowCount(), 2)
+        self.assertEqual(len(self.dialog.result_phases), 2)
+        self.assertEqual(self.updates[-1], False)
+
+    def test_per_phase_gradient_toggle_and_palette_is_immediate(self):
+        enabled = self.dialog.table.cellWidget(0, 5)
+        palette = self.dialog.table.cellWidget(0, 6)
+        self.assertTrue(enabled.isChecked())
+        self.assertTrue(palette.isEnabled())
+        enabled.setChecked(False)
+        self.assertFalse(palette.isEnabled())
+        self.assertFalse(self.dialog.result_phases[0].gradient)
+        enabled.setChecked(True)
+        palette.setCurrentIndex(palette.findData("amber"))
+        self.assertTrue(self.dialog.result_phases[0].gradient)
+        self.assertEqual(self.dialog.result_phases[0].gradient_end, "amber")
+
     def test_close_keeps_changes(self):
         self.dialog.table.cellWidget(0, 3).setValue(100)
         buttons = self.dialog.findChild(QDialogButtonBox)
@@ -146,6 +169,66 @@ class AppIntegrationTests(unittest.TestCase):
                 reopened = FocusLoopApp(self.qt_app)
                 self.assertEqual(len(reopened.timer_model.phases), original_phases)
                 self.assertEqual(reopened.timer_model.phases[0].font_size, 200)
+                reopened.close()
+
+    def test_style_and_gradient_persist_after_relaunch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "settings.ini")
+            with patch(
+                "focusloop.app.QSettings",
+                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
+            ):
+                controller = FocusLoopApp(self.qt_app)
+                self.assertEqual(controller.display_style, "modern")
+                controller.overlay.show()
+                controller.show_settings()
+                dialog = controller.settings_dialog
+                dialog.style_combo.setCurrentIndex(dialog.style_combo.findData("simple"))
+                self.assertEqual(controller.display_style, "simple")
+                self.assertEqual(controller.overlay.display_style, "simple")
+                self.assertFalse(controller.overlay.grab().isNull())
+                dialog.style_combo.setCurrentIndex(dialog.style_combo.findData("modern"))
+                self.assertFalse(controller.overlay.grab().isNull())
+                self.assertTrue(controller.overlay.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
+                dialog.table.cellWidget(0, 5).setChecked(False)
+                dialog.table.cellWidget(0, 6).setCurrentIndex(
+                    dialog.table.cellWidget(0, 6).findData("rose")
+                )
+                self.assertFalse(controller.timer_model.phases[0].gradient)
+                self.assertEqual(controller.timer_model.phases[0].gradient_end, "rose")
+                controller.close()
+                reopened = FocusLoopApp(self.qt_app)
+                self.assertEqual(reopened.display_style, "modern")
+                self.assertFalse(reopened.timer_model.phases[0].gradient)
+                self.assertEqual(reopened.timer_model.phases[0].gradient_end, "rose")
+                reopened.close()
+
+    def test_reset_loop_via_settings_keeps_countdown_and_persists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "settings.ini")
+            with patch(
+                "focusloop.app.QSettings",
+                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
+            ):
+                controller = FocusLoopApp(self.qt_app)
+                controller.timer_model.loop_number = 7
+                controller.timer_model.pause()
+                controller.update()
+                before = controller.timer_model.remaining_seconds()
+                controller.show_settings()
+                self.assertEqual(controller.settings_dialog.loop_label.text(), "LOOP 07")
+                reset = next(
+                    button for button in controller.settings_dialog.findChildren(QPushButton)
+                    if button.text() == "ループ数をリセット"
+                )
+                reset.click()
+                self.assertEqual(controller.timer_model.loop_number, 1)
+                self.assertEqual(controller.settings_dialog.loop_label.text(), "LOOP 01")
+                self.assertEqual(controller.timer_model.remaining_seconds(), before)
+                self.assertTrue(controller.timer_model.paused)
+                controller.close()
+                reopened = FocusLoopApp(self.qt_app)
+                self.assertEqual(reopened.timer_model.loop_number, 1)
                 reopened.close()
 
     def test_phase_skip_switches_rendered_font_size(self):
