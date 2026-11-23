@@ -288,9 +288,19 @@ class PhaseCard(QFrame):
         self.simple.setChecked(bool(values["simple"]))
         field(3, 0, "表示モード", self.simple)
 
-        self.topmost = QCheckBox("最前面に表示", self.body)
+        window_options = QWidget(self.body)
+        window_layout = QHBoxLayout(window_options)
+        window_layout.setContentsMargins(0, 0, 0, 0)
+        window_layout.setSpacing(14)
+        self.topmost = QCheckBox("最前面に表示", window_options)
         self.topmost.setChecked(bool(values["topmost"]))
-        field(3, 1, "ウィンドウ", self.topmost)
+        self.hidden = QCheckBox("非表示", window_options)
+        self.hidden.setToolTip("このフェーズの間はタイマー表示だけを隠す")
+        self.hidden.setChecked(bool(values["hidden"]))
+        window_layout.addWidget(self.topmost)
+        window_layout.addWidget(self.hidden)
+        window_layout.addStretch()
+        field(3, 1, "ウィンドウ", window_options)
 
         self.position = QComboBox(self.body)
         for label, value in POSITIONS:
@@ -329,6 +339,7 @@ class PhaseCard(QFrame):
         for widget in (
             self.name, self.minutes, self.color, self.gradient, self.gradient_end,
             self.size, self.opacity, self.simple, self.position, self.topmost,
+            self.hidden,
         ):
             if isinstance(widget, QLineEdit):
                 widget.textChanged.connect(self._changed)
@@ -356,6 +367,7 @@ class PhaseCard(QFrame):
             "simple": self.simple.isChecked(),
             "position": self.position.currentData(),
             "topmost": self.topmost.isChecked(),
+            "hidden": self.hidden.isChecked(),
         }
 
     def _refresh_summary(self) -> None:
@@ -369,9 +381,11 @@ class PhaseCard(QFrame):
         )
         mode = "Simple" if self.simple.isChecked() else "標準"
         front = "最前面ON" if self.topmost.isChecked() else "最前面OFF"
+        visibility = " · 非表示" if self.hidden.isChecked() else ""
         self.summary.setText(
             f"{self.minutes.value()}分 · {main}{secondary} · "
-            f"{mode} · {positions.get(self.position.currentData(), '?')} · {front}"
+            f"{mode} · {positions.get(self.position.currentData(), '?')} · "
+            f"{front}{visibility}"
         )
 
     def _changed(self, *_args) -> None:
@@ -417,6 +431,7 @@ class SettingsDialog(QDialog):
     changed = Signal(object, bool)
     loop_reset = Signal()
     timer_reset = Signal()
+    pause_toggle = Signal()
     initialize_requested = Signal()
 
     def __init__(self, parent, timer: FocusTimer) -> None:
@@ -427,16 +442,16 @@ class SettingsDialog(QDialog):
         self.result_phases: tuple[PhaseConfig, ...] | None = None
         self._rendering = False
         self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
+        self.pause_button = QPushButton(self)
+        self.pause_button.setObjectName("pause_button")
+        self.set_pause_state(timer.paused)
+        self.pause_button.clicked.connect(lambda: self.pause_toggle.emit())
         loop_reset = QPushButton("ループ数をリセット", self)
+        loop_reset.setObjectName("loop_reset_button")
         loop_reset.clicked.connect(lambda: self.loop_reset.emit())
         timer_reset = QPushButton("現在のフェーズをリセット", self)
+        timer_reset.setObjectName("timer_reset_button")
         timer_reset.clicked.connect(lambda: self.timer_reset.emit())
-
-        top = QHBoxLayout()
-        top.addWidget(self.loop_label)
-        top.addWidget(loop_reset)
-        top.addStretch()
-        top.addWidget(timer_reset)
 
         self.cards_container = QWidget(self)
         self.cards_layout = QVBoxLayout(self.cards_container)
@@ -459,7 +474,7 @@ class SettingsDialog(QDialog):
         )
         note.setWordWrap(True)
 
-        initialize = QPushButton("初期化", self)
+        initialize = QPushButton("設定初期化", self)
         initialize.setObjectName("initialize_button")
         initialize.setToolTip("設定とタイマーをすべて初期値に戻す")
         initialize.clicked.connect(self._confirm_initialize)
@@ -467,12 +482,16 @@ class SettingsDialog(QDialog):
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("閉じる")
         buttons.rejected.connect(self.reject)
         footer = QHBoxLayout()
-        footer.addWidget(initialize)
+        footer.setSpacing(6)
+        footer.addWidget(self.loop_label)
+        footer.addWidget(loop_reset)
+        footer.addWidget(timer_reset)
         footer.addStretch()
+        footer.addWidget(self.pause_button)
+        footer.addWidget(initialize)
         footer.addWidget(buttons)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
         layout.addWidget(self.scroll, 1)
         layout.addWidget(add_button)
         layout.addWidget(note)
@@ -577,10 +596,10 @@ class SettingsDialog(QDialog):
 
     def _confirm_initialize(self) -> None:
         if confirm_change(
-            self, "FocusLoop - 初期化", "すべての設定を初期化しますか？",
+            self, "FocusLoop - 設定初期化", "すべての設定を初期化しますか？",
             "フェーズ・色・サイズ・表示位置・表示モード・最前面・ループ数を初期値に戻し、"
             "作業45:00からタイマーを再開します。この操作は取り消せません。",
-            "初期化する",
+            "設定初期化する",
         ):
             self.initialize_requested.emit()
 
@@ -588,9 +607,13 @@ class SettingsDialog(QDialog):
         self._render_cards([asdict(phase) for phase in phases])
         self.result_phases = phases
         self.set_loop_number(loop_number)
+        self.set_pause_state(False)
 
     def set_loop_number(self, number: int) -> None:
         self.loop_label.setText(f"LOOP {number:02d}")
+
+    def set_pause_state(self, paused: bool) -> None:
+        self.pause_button.setText("再開" if paused else "一時停止")
 
 
 
@@ -621,6 +644,7 @@ class FocusLoopApp:
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
         self._last_loop_saved = loop_number
         self.overlay = Overlay(self.timer_model.current_phase)
+        self._overlay_started = False
         self.tray = QSystemTrayIcon(clock_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
         self.menu = QMenu()
@@ -662,8 +686,7 @@ class FocusLoopApp:
             )
             return False
         self.tray.show()
-        self.overlay.show()
-        self.overlay.reposition()
+        self._overlay_started = True
         self.update()
         self.qt_timer.start()
         return True
@@ -676,6 +699,13 @@ class FocusLoopApp:
         self.overlay.set_clock(
             display, phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
         )
+        # Hidden is a phase display setting, not a timer pause: the model and
+        # tray keep updating. Do not show a window before start() is called.
+        if phase.hidden and self.overlay.isVisible():
+            self.overlay.hide()
+        elif not phase.hidden and self._overlay_started and not self.overlay.isVisible():
+            self.overlay.show()
+            self.overlay.reposition()
         if self.timer_model.loop_number != self._last_loop_saved:
             self._save_loop_number()
         state = (display, phase, self.timer_model.paused)
@@ -685,6 +715,8 @@ class FocusLoopApp:
                 title += " (一時停止)"
             self.status_action.setText(f"{title}  {display}")
             self.pause_action.setText("再開" if self.timer_model.paused else "一時停止")
+            if self.settings_dialog is not None:
+                self.settings_dialog.set_pause_state(self.timer_model.paused)
             self.tray.setToolTip(f"FocusLoop - {title} {display}")
             self.last_display = state
         if switched:
@@ -807,6 +839,7 @@ class FocusLoopApp:
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
         dialog.timer_reset.connect(self.reset)
+        dialog.pause_toggle.connect(self.toggle_pause)
         dialog.initialize_requested.connect(self._initialize_defaults)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
@@ -828,6 +861,7 @@ class FocusLoopApp:
 
     def close(self) -> None:
         self.ring_timer.stop()
+        self._overlay_started = False
         self.qt_timer.stop()
         if self.settings_dialog is not None:
             self.settings_dialog.close()

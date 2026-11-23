@@ -166,6 +166,45 @@ class TimerTests(unittest.TestCase):
         self.assertEqual(timer.current_phase.font_size, 200)
         self.assertEqual(timer.remaining_seconds(now=80), 900)
 
+    def test_hidden_flag_defaults_to_visible_and_round_trips(self):
+        visible = PhaseConfig("作業", 45)
+        hidden = PhaseConfig("休憩", 15, hidden=True)
+        self.assertFalse(visible.hidden)
+        self.assertTrue(hidden.hidden)
+        saved = phases_to_json((visible, hidden))
+        self.assertEqual(phases_from_json(saved), (visible, hidden))
+        self.assertIn('"hidden": true', saved)
+        self.assertIn('"hidden": false', saved)
+
+        old = json.dumps([{
+            "name": "以前の休憩", "minutes": 5, "color": "mint",
+            "opacity": 100,
+        }])
+        self.assertFalse(phases_from_json(old)[0].hidden)
+        with self.assertRaises(ValueError):
+            PhaseConfig("作業", 45, hidden="true")
+        with self.assertRaises(ValueError):
+            PhaseConfig("作業", 45, hidden=1)
+        self.assertEqual(
+            phases_from_json(saved.replace('"hidden": true', '"hidden": "yes"')),
+            default_phases(),
+        )
+
+    def test_hidden_is_presentation_only_and_does_not_reset_timer(self):
+        timer = FocusTimer(now=0.0)
+        phases = (
+            PhaseConfig("作業", 45, hidden=True),
+            PhaseConfig("休憩", 15, hidden=False),
+        )
+        timer.configure(phases, now=125.0)
+        self.assertEqual(timer.remaining_seconds(now=125.0), 2575)
+        self.assertTrue(timer.current_phase.hidden)
+        timer.skip(now=130.0)
+        self.assertFalse(timer.current_phase.hidden)
+        self.assertEqual(timer.remaining_seconds(now=130.0), 900)
+        timer.pause(now=140.0)
+        self.assertEqual(timer.remaining_seconds(now=999.0), 890)
+
     def test_old_json_phases_migrate_legacy_font_size(self):
         old = [
             {"name": "作業", "minutes": 45, "color": "white", "opacity": 100},
@@ -183,11 +222,11 @@ class TimerTests(unittest.TestCase):
         self.assertEqual([x.font_size for x in fallback], [80, 80])
 
     def test_font_size_bounds(self):
-        self.assertEqual((MIN_FONT_SIZE, MAX_FONT_SIZE), (8, 200))
-        for size in (7, 201, True, 2.5):
+        self.assertEqual((MIN_FONT_SIZE, MAX_FONT_SIZE), (8, 300))
+        for size in (7, 301, True, 2.5):
             with self.subTest(size=size), self.assertRaises(ValueError):
                 PhaseConfig("作業", 45, font_size=size)
-        for size in (8, 200):
+        for size in (8, 200, 300):
             self.assertEqual(PhaseConfig("作業", 45, font_size=size).font_size, size)
 
     def test_loop_count_increments_on_wrap_and_skipping(self):

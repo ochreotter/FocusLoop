@@ -26,7 +26,7 @@ COLOR_HEX = {key: hex_value for key, _, hex_value in COLOR_PRESETS}
 MIN_MINUTES = 1
 MAX_MINUTES = 240
 MIN_FONT_SIZE = 8
-MAX_FONT_SIZE = 200
+MAX_FONT_SIZE = 300
 DEFAULT_FONT_SIZE = 42
 POSITION_VALUES = ("bottom_left", "bottom_right", "top_left", "top_right", "center")
 
@@ -43,6 +43,7 @@ class PhaseConfig:
     simple: bool = False
     position: str = "bottom_left"
     topmost: bool = True
+    hidden: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not 1 <= len(self.name.strip()) <= 40:
@@ -65,6 +66,8 @@ class PhaseConfig:
             raise ValueError("unknown phase position")
         if type(self.topmost) is not bool:
             raise ValueError("topmost must be a boolean")
+        if type(self.hidden) is not bool:
+            raise ValueError("hidden must be a boolean")
 
 
 def default_phases(
@@ -117,6 +120,7 @@ def phases_from_json(
                     simple=row.get("simple", legacy_simple),
                     position=row.get("position", legacy_position),
                     topmost=row.get("topmost", True),
+                    hidden=row.get("hidden", False),
                 )
                 for row in rows
             ]

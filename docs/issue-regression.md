@@ -16,12 +16,12 @@
 | #12 | Clockトレイ/EXEアイコンとICO生成 | `tests/ui/test_app_ui.py` |
 | #13 | Linuxロジック・Windows UI CI、mainでEXE生成 | `tests/test_issue_regression.py`（workflow静的検査） |
 | #14 | 日本語UI・通知・デフォルトフェーズ名 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
-| #15 | 8〜200pt/フェーズ、表示域内への調整、旧font_size移行。スライダーは#21 | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
+| #15 | 8〜300pt/フェーズ（#53で上限拡張）、表示域内への調整、旧font_size移行。スライダーは#21 | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
 | #16 | 標準の円形UIとSimple数字表示。共通切替は#43でフェーズ別チェックへ変更 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #17 | 進捗リング・背景トラック・透明度・一時停止との両立。回転方向は#28に従う | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #18 | LOOP表示・永続化・リセット・長時間経過の周回加算 | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
 | #19 | グラデーションON/OFF、サブ色、Modernリング、透過率 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
-| #21 | 「サイズ」スライダー8〜200pt。横長テーブル列は#45でカード内の項目へ変更 | `tests/ui/test_app_ui.py` |
+| #21 | 「サイズ」スライダー8〜300pt（#53）。横長テーブル列は#45でカード内の項目へ変更 | `tests/ui/test_app_ui.py` |
 | #23 | メイン色とサブ色/グラデーション、チェック→色選択。列配置は#45でカード内へ変更 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #24 | 白・黒を含むスウォッチ表示 | `tests/ui/test_app_ui.py` |
 | #25 | 7色、ブラックの保存・反映 | `tests/test_timer.py`, `tests/test_issue_regression.py` |
@@ -40,6 +40,9 @@
 | #43 | Simpleチェック・表示位置をフェーズごとに保存/移行/切替 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #44 | 最前面チェックをフェーズごとに保存/切替、透過維持 | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
 | #45 | 2列のフェーズカード・アコーディオン、要約表示、追加削除・上下/ドラッグ並べ替え | `tests/ui/test_app_ui.py`, `tests/ui/test_issue_regression.py` |
+| #53 | 8〜300pt・設定画面で一時停止/再開・Modernの上部にフェーズ名、下部にLOOP | `tests/test_timer.py`, `tests/test_issue_regression.py`, `tests/ui/test_app_ui.py`, `tests/ui/test_overlay_contrast.py` |
+| #55 | フェーズ別非表示チェック、切替時の自動再表示、裏側のタイマー・トレイ継続、初期化/保存/旧設定との互換 | `tests/test_timer.py`, `tests/ui/test_app_ui.py` |
+| #56 | LOOPと各リセット操作の設定画面フッターへの移動、「設定初期化」への名称変更 | `tests/ui/test_app_ui.py` |
 
 ## リファクタリング判断
 
