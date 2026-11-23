@@ -29,7 +29,7 @@ class TimerTests(unittest.TestCase):
                 ),
                 PhaseConfig(
                     "休憩中", 15, color="mint", opacity=20, font_size=300,
-                    gradient=True, gradient_end="white", simple=False,
+                    gradient=False, gradient_end="white", simple=False,
                     position="center", topmost=True, hidden=False,
                 ),
             ),
