@@ -7,6 +7,7 @@ LANGUAGES = ("ja", "en")
 
 ENGLISH = {
     "言語": "Language",
+    "通知する": "Notifications",
     "設定": "Settings",
     "システムトレイを利用できないため、起動できません。":
         "FocusLoop cannot start because the system tray is unavailable.",
