@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import threading
 
-from PySide6.QtCore import QEvent, QMimeData, QPoint, QSize, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QMimeData, QObject, QPoint, QSize, QSettings, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QCursor, QDrag, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -35,6 +36,7 @@ from .geometry import tray_menu_position
 from .i18n import LANGUAGES, translate as tr
 from .icons import clock_icon
 from .overlay import Overlay
+from . import updates
 from .timer import (
     COLOR_PRESETS,
     DEFAULT_FONT_SIZE,
@@ -453,6 +455,7 @@ class SettingsDialog(QDialog):
     initialize_requested = Signal()
     language_changed = Signal(str)
     notifications_changed = Signal(bool)
+    update_requested = Signal()
 
     def __init__(
         self, parent, timer: FocusTimer, language: str = "ja",
@@ -482,6 +485,13 @@ class SettingsDialog(QDialog):
         self.notifications_checkbox.toggled.connect(self.notifications_changed.emit)
         language_row.addWidget(self.notifications_checkbox)
         language_row.addStretch()
+        self.version_label = QLabel(updates.VERSION, self)
+        self.version_label.setObjectName("version_label")
+        language_row.addWidget(self.version_label)
+        self.update_button = QPushButton(tr("更新を確認", self.language), self)
+        self.update_button.setObjectName("update_button")
+        self.update_button.clicked.connect(self.update_requested.emit)
+        language_row.addWidget(self.update_button)
         self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
         self.pause_button = QPushButton(self)
         self.pause_button.setObjectName("pause_button")
@@ -560,6 +570,10 @@ class SettingsDialog(QDialog):
         layout.addWidget(note)
         layout.addLayout(footer)
         self._set_button_cursors()
+
+    def set_update_status(self, busy: bool, text: str | None = None) -> None:
+        self.update_button.setEnabled(not busy)
+        self.update_button.setText(text or tr("更新を確認", self.language))
 
     def _render_cards(
         self, rows: list[dict], expanded_index: int = 0,
@@ -704,6 +718,8 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(f"FocusLoop - {tr('設定', language)}")
         self.language_label.setText(tr("言語", language))
         self.notifications_checkbox.setText(tr("通知する", language))
+        if self.update_button.isEnabled():
+            self.update_button.setText(tr("更新を確認", language))
         self.loop_reset_button.setText(tr("ループ数をリセット", language))
         self.timer_reset_button.setText(tr("現在のフェーズをリセット", language))
         self.previous_button.setText(tr("前のフェーズへ", language))
@@ -719,11 +735,20 @@ class SettingsDialog(QDialog):
 
 
 
-class FocusLoopApp:
+class FocusLoopApp(QObject):
+    update_checked = Signal(object, object)
+    update_progress = Signal(int, int)
+    update_prepared = Signal(object, object)
+
     def __init__(self, qt_app: QApplication) -> None:
+        super().__init__()
         self.qt_app = qt_app
         self.qt_app.setQuitOnLastWindowClosed(False)
         self.settings = QSettings("FocusLoop", "FocusLoop")
+        self._update_busy = False
+        self.update_checked.connect(self._on_update_checked)
+        self.update_progress.connect(self._on_update_progress)
+        self.update_prepared.connect(self._on_update_prepared)
         stored_language = str(self.settings.value("language", "ja"))
         self.language = stored_language if stored_language in LANGUAGES else "ja"
         self.notifications_enabled = self.settings.value(
@@ -979,11 +1004,124 @@ class FocusLoopApp:
         dialog.initialize_requested.connect(self._initialize_defaults)
         dialog.language_changed.connect(self._set_language)
         dialog.notifications_changed.connect(self._set_notifications_enabled)
+        dialog.update_requested.connect(self.check_for_updates)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
+
+    def check_for_updates(self) -> None:
+        """Check GitHub Releases without blocking the timer or the settings UI."""
+        if self._update_busy:
+            return
+        self._update_busy = True
+        if self.settings_dialog is not None:
+            self.settings_dialog.set_update_status(True, tr("確認中...", self.language))
+
+        def check() -> None:
+            try:
+                self.update_checked.emit(updates.check_latest_release(), None)
+            except Exception as exc:
+                self.update_checked.emit(None, str(exc))
+
+        threading.Thread(target=check, name="FocusLoop-update-check", daemon=True).start()
+
+    @Slot(object, object)
+    def _on_update_checked(self, release: object, error: object) -> None:
+        self._update_busy = False
+        dialog = self.settings_dialog
+        if dialog is None:
+            return
+        dialog.set_update_status(False)
+        english = self.language == "en"
+        if error is not None:
+            QMessageBox.warning(
+                dialog, "FocusLoop",
+                f"Could not check for updates:\n{error}" if english
+                else f"更新を確認できなかったよ。\n{error}",
+            )
+            return
+        if release is None:
+            QMessageBox.information(
+                dialog, "FocusLoop",
+                "FocusLoop is up to date." if english else "FocusLoopは最新バージョンだよ。",
+            )
+            return
+        if not updates.can_self_update():
+            QMessageBox.information(
+                dialog, "FocusLoop",
+                (f"Version {release.version} is available. Self-updates require "
+                 f"the packaged Windows app.\n{updates.RELEASES_PAGE}")
+                if english else
+                (f"新しいバージョン {release.version} があるよ。自動更新は配布用Windows版のみ対応。"
+                 f"\n{updates.RELEASES_PAGE}"),
+            )
+            return
+        confirmation = (
+            f"Update FocusLoop {updates.VERSION} to {release.version}?\n"
+            "The app will close and restart when the download is ready."
+            if english else
+            f"FocusLoop {updates.VERSION} → {release.version} に更新する？\n"
+            "ダウンロード後にアプリを終了し、自動で再起動するよ。"
+        )
+        answer = QMessageBox.question(
+            dialog, "FocusLoop", confirmation,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._update_busy = True
+        dialog.set_update_status(True, tr("ダウンロード中...", self.language))
+
+        def download() -> None:
+            try:
+                prepared = updates.prepare_update(
+                    release, progress=lambda done, total: self.update_progress.emit(done, total)
+                )
+                self.update_prepared.emit(prepared, None)
+            except Exception as exc:
+                self.update_prepared.emit(None, str(exc))
+
+        threading.Thread(target=download, name="FocusLoop-update-download", daemon=True).start()
+
+    @Slot(int, int)
+    def _on_update_progress(self, received: int, total: int) -> None:
+        if self.settings_dialog is not None and total > 0:
+            percent = min(100, int(received * 100 / total))
+            self.settings_dialog.set_update_status(
+                True, f"{tr('ダウンロード中...', self.language)} {percent}%"
+            )
+
+    @Slot(object, object)
+    def _on_update_prepared(self, prepared: object, error: object) -> None:
+        self._update_busy = False
+        dialog = self.settings_dialog
+        if dialog is None:
+            if prepared is not None:
+                updates.discard_prepared_update(prepared)
+            return
+        dialog.set_update_status(False)
+        if error is not None:
+            QMessageBox.warning(
+                dialog, "FocusLoop",
+                f"Update download failed:\n{error}" if self.language == "en"
+                else f"更新ファイルを準備できなかったよ。\n{error}",
+            )
+            return
+        try:
+            updates.launch_updater(prepared)
+        except Exception as exc:
+            updates.discard_prepared_update(prepared)
+            QMessageBox.warning(
+                dialog, "FocusLoop",
+                f"Could not start update:\n{exc}" if self.language == "en"
+                else f"更新処理を開始できなかったよ。\n{exc}",
+            )
+            return
+        self.settings.sync()
+        self.close()
 
     def _set_notifications_enabled(self, enabled: bool) -> None:
         if enabled == self.notifications_enabled:
