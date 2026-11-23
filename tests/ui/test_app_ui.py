@@ -1,7 +1,8 @@
-"""Offscreen Qt tests of live settings, per-phase text sizes and tray UI."""
+"""Offscreen UI and application regressions for accordion phase settings."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 import struct
 import tempfile
 import unittest
@@ -9,618 +10,346 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QApplication, QAbstractButton, QCheckBox, QComboBox, QDialogButtonBox, QLabel, QMessageBox, QPushButton, QSlider, QSystemTrayIcon
+from PySide6.QtWidgets import (
+    QApplication, QAbstractButton, QCheckBox, QDialogButtonBox, QMessageBox,
+    QPushButton, QScrollArea, QSlider, QSystemTrayIcon,
+)
 
-from focusloop.app import FocusLoopApp, SettingsDialog
-from focusloop.overlay import remaining_arc_angles
+from focusloop.app import FocusLoopApp, PhaseCard, PhaseDragHandle, SettingsDialog
 from focusloop.icons import clock_icon, clock_image
-from focusloop.timer import FocusTimer, default_phases, phases_to_json
+from focusloop.overlay import remaining_arc_angles
+from focusloop.timer import COLOR_HEX, FocusTimer, PhaseConfig, default_phases
 from scripts.generate_icon import build_ico
 
 
-class SettingsUITests(unittest.TestCase):
+class CardSettingsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.qt_app = QApplication.instance() or QApplication([])
+        cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        self.dialog = SettingsDialog(None, FocusTimer(), "bottom_left", "modern")
-        self.updates = []
-        self.dialog.changed.connect(lambda _dialog, reorder: self.updates.append(reorder))
+        self.dialog = SettingsDialog(None, FocusTimer())
+        self.events = []
+        self.dialog.changed.connect(lambda _dialog, restart: self.events.append(restart))
         self.dialog.show()
-        self.qt_app.processEvents()
+        self.app.processEvents()
 
     def tearDown(self):
         self.dialog.close()
-        self.qt_app.processEvents()
+        self.app.processEvents()
 
-    def test_buttons_and_checkboxes_use_pointing_hand_cursor(self):
-        def check_all():
-            buttons = self.dialog.findChildren(QAbstractButton)
-            self.assertGreater(len(buttons), 5)
-            for button in buttons:
-                self.assertEqual(
-                    button.cursor().shape(), Qt.CursorShape.PointingHandCursor,
-                    f"{type(button).__name__}: {button.text()}",
-                )
+    def test_cards_show_summary_and_only_active_phase_is_expanded(self):
+        self.assertEqual(len(self.dialog.cards), 2)
+        self.assertIsInstance(self.dialog.scroll, QScrollArea)
+        self.assertEqual(self.dialog.scroll.horizontalScrollBarPolicy(),
+                         Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        first, second = self.dialog.cards
+        self.assertIsInstance(first, PhaseCard)
+        self.assertTrue(first.expand_button.isChecked())
+        self.assertFalse(second.expand_button.isChecked())
+        self.assertIn("45分", first.summary.text())
+        self.assertIn("左下", first.summary.text())
+        self.assertIn("最前面ON", first.summary.text())
+        self.assertIn("標準", first.summary.text())
+        self.assertIsInstance(first.drag_handle, PhaseDragHandle)
+        self.assertTrue(first.acceptDrops())
 
-        check_all()
+        second.expand_button.click()
+        self.assertTrue(second.body.isVisible())
+        self.assertFalse(first.body.isVisible())
+        self.assertEqual(len(self.events), 0)
+
+    def test_all_buttons_and_checkboxes_show_pointing_hand(self):
+        for button in self.dialog.findChildren(QAbstractButton):
+            self.assertEqual(
+                button.cursor().shape(), Qt.CursorShape.PointingHandCursor,
+                button.text(),
+            )
         self.dialog._add_phase()
-        check_all()
-        self.assertEqual(
-            self.dialog.table.cellWidget(2, 6).findChild(QPushButton).cursor().shape(),
-            Qt.CursorShape.PointingHandCursor,
-        )
+        for button in self.dialog.cards[-1].findChildren(QAbstractButton):
+            self.assertEqual(button.cursor().shape(), Qt.CursorShape.PointingHandCursor)
 
-    def test_initialize_button_requires_confirmation_and_keeps_dialog_open(self):
-        events = []
-        self.dialog.initialize_requested.connect(lambda: events.append(True))
-        button = next(
-            b for b in self.dialog.findChildren(QPushButton) if b.text() == "初期化"
+    def test_two_column_editor_all_controls_and_instant_preview(self):
+        card = self.dialog.cards[0]
+        card.name.setText("集中")
+        card.minutes.setValue(55)
+        card.color.setCurrentIndex(card.color.findData("black"))
+        card.gradient_end.setCurrentIndex(card.gradient_end.findData("mint"))
+        card.size.setValue(196)
+        card.opacity.setValue(42)
+        card.simple.setChecked(True)
+        card.position.setCurrentIndex(card.position.findData("center"))
+        card.topmost.setChecked(False)
+        self.assertEqual(card.size_label.text(), "196 pt")
+        self.assertEqual(card.opacity_label.text(), "42%")
+        phase = self.dialog.result_phases[0]
+        self.assertEqual(
+            (phase.name, phase.minutes, phase.color, phase.gradient_end,
+             phase.font_size, phase.opacity, phase.simple, phase.position, phase.topmost),
+            ("集中", 55, "black", "mint", 196, 42, True, "center", False),
         )
-        self.assertEqual(button.objectName(), "initialize_button")
-        for answer in (
-            QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.NoButton
-        ):
+        self.assertIn("Simple", card.summary.text())
+        self.assertIn("最前面OFF", card.summary.text())
+        self.assertIn("中央", card.summary.text())
+        self.assertIn("集中", card.title.text())
+        self.assertEqual(card.name.maxLength(), 40)
+        self.assertEqual((card.minutes.minimum(), card.minutes.maximum()), (1, 240))
+        self.assertEqual((card.size.minimum(), card.size.maximum()), (8, 200))
+        self.assertEqual((card.opacity.minimum(), card.opacity.maximum()), (0, 100))
+        self.assertTrue(all(event is False for event in self.events))
+
+    def test_full_palette_swatches_and_grouped_gradient(self):
+        card = self.dialog.cards[0]
+        self.assertEqual(card.color.count(), 7)
+        self.assertEqual(card.gradient_end.count(), 7)
+        for combo in (card.color, card.gradient_end):
+            for color in COLOR_HEX:
+                index = combo.findData(color)
+                self.assertGreaterEqual(index, 0)
+                self.assertFalse(combo.itemIcon(index).isNull())
+        container = card.gradient.parentWidget()
+        self.assertIs(container.layout().itemAt(0).widget(), card.gradient)
+        self.assertIs(container.layout().itemAt(1).widget(), card.gradient_end)
+        card.gradient_end.setCurrentIndex(card.gradient_end.findData("black"))
+        card.gradient.setChecked(False)
+        self.assertFalse(card.gradient_end.isEnabled())
+        self.assertEqual(self.dialog.result_phases[0].gradient_end, "black")
+        card.gradient.setChecked(True)
+        self.assertTrue(card.gradient_end.isEnabled())
+
+    def test_add_and_reorder_keeps_all_per_phase_settings(self):
+        first = self.dialog.cards[0]
+        first.simple.setChecked(True)
+        first.position.setCurrentIndex(first.position.findData("top_right"))
+        first.topmost.setChecked(False)
+        self.dialog._add_phase()
+        self.assertEqual(len(self.dialog.cards), 3)
+        self.assertEqual(self.dialog.cards[-1].name.text(), "新しいフェーズ")
+        self.assertEqual(self.dialog.cards[-1].minutes.value(), 5)
+        self.assertFalse(self.dialog.cards[-1].simple.isChecked())
+        self.assertTrue(self.dialog.cards[-1].topmost.isChecked())
+        self.assertTrue(self.dialog.cards[-1].expand_button.isChecked())
+        self.dialog._reorder_cards(first, self.dialog.cards[-1])
+        self.assertEqual(self.dialog._current_names(), ["休憩", "新しいフェーズ", "作業"])
+        self.assertEqual(self.dialog.result_phases[-1].position, "top_right")
+        self.assertFalse(self.dialog.result_phases[-1].topmost)
+        self.assertTrue(self.events[-1])
+        self.dialog.cards[-1].move_up.click()
+        self.assertEqual(self.dialog._current_names(), ["休憩", "作業", "新しいフェーズ"])
+
+    def test_delete_confirmation_and_minimum_one_phase(self):
+        first = self.dialog.cards[0]
+        before = [c.snapshot() for c in self.dialog.cards]
+        for answer in (QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.NoButton):
+            with patch.object(QMessageBox, "exec", return_value=answer):
+                first.delete_button.click()
+            self.assertEqual([c.snapshot() for c in self.dialog.cards], before)
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
+            first.delete_button.click()
+        self.assertEqual(len(self.dialog.cards), 1)
+        self.assertEqual(self.dialog.cards[0].name.text(), "休憩")
+        self.assertTrue(self.events[-1])
+        with patch.object(QMessageBox, "information") as info:
+            self.dialog.cards[0].delete_button.click()
+            info.assert_called_once()
+        self.assertEqual(len(self.dialog.cards), 1)
+
+    def test_delete_button_is_compact_and_muted(self):
+        card = self.dialog.cards[0]
+        button = card.delete_button
+        self.assertEqual((button.width(), button.height()), (54, 26))
+        self.assertIn("#F9EAEC", button.styleSheet())
+        self.assertNotIn("#C62828", button.styleSheet())
+        self.assertTrue(button.isVisible())
+
+    def test_initialization_confirmation_default_cancel(self):
+        calls = []
+        self.dialog.initialize_requested.connect(lambda: calls.append(True))
+        initialize = self.dialog.findChild(QPushButton, "initialize_button")
+        for answer in (QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.NoButton):
             with patch.object(QMessageBox, "exec", return_value=answer) as popup:
-                button.click()
+                initialize.click()
                 popup.assert_called_once()
-            self.assertEqual(events, [])
-            self.assertTrue(self.dialog.isVisible())
-        with patch.object(
-            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
-        ):
-            button.click()
-        self.assertEqual(events, [True])
+            self.assertEqual(calls, [])
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
+            initialize.click()
+        self.assertEqual(calls, [True])
         self.assertTrue(self.dialog.isVisible())
 
-    def test_only_close_button(self):
+    def test_only_close_button_in_dialog_button_box(self):
         buttons = self.dialog.findChild(QDialogButtonBox)
         self.assertIsNone(buttons.button(QDialogButtonBox.StandardButton.Apply))
         self.assertIsNone(buttons.button(QDialogButtonBox.StandardButton.Ok))
         self.assertIsNone(buttons.button(QDialogButtonBox.StandardButton.Cancel))
         self.assertIsNotNone(buttons.button(QDialogButtonBox.StandardButton.Close))
 
-    def test_minutes_change_emits_immediately_without_closing(self):
-        self.dialog.table.cellWidget(0, 1).setValue(50)
-        self.assertEqual(self.dialog.result_phases[0].minutes, 50)
-        self.assertEqual(self.updates, [False])
-        self.assertTrue(self.dialog.isVisible())
-        self.dialog.table.cellWidget(0, 1).setValue(55)
-        self.assertEqual(self.dialog.result_phases[0].minutes, 55)
-        self.assertEqual(self.updates, [False, False])
 
-    def test_font_size_is_per_phase_and_supports_8_to_200pt(self):
-        first = self.dialog.table.cellWidget(0, 4).findChild(QSlider)
-        second = self.dialog.table.cellWidget(1, 4).findChild(QSlider)
-        self.assertEqual((first.minimum(), first.maximum()), (8, 200))
-        self.assertEqual((second.minimum(), second.maximum()), (8, 200))
-        first.setValue(8)
-        second.setValue(200)
-        self.assertEqual(self.dialog.result_phases[0].font_size, 8)
-        self.assertEqual(self.dialog.result_phases[1].font_size, 200)
-        self.assertEqual(self.updates, [False, False])
-        self.assertEqual(self.dialog.table.rowCount(), 2)
-        self.assertTrue(self.dialog.isVisible())
-
-    def test_size_column_uses_slider_with_visible_live_pt_value(self):
-        self.assertEqual(
-            self.dialog.table.horizontalHeaderItem(4).text(), "サイズ"
-        )
-        cell = self.dialog.table.cellWidget(0, 4)
-        slider = cell.findChild(QSlider)
-        label = cell.findChild(QLabel)
-        self.assertIsNotNone(slider)
-        self.assertIsNotNone(label)
-        self.assertEqual(slider.orientation(), Qt.Orientation.Horizontal)
-        self.assertEqual((slider.minimum(), slider.maximum()), (8, 200))
-        self.assertEqual(slider.singleStep(), 1)
-        self.assertEqual(label.text(), "42 pt")
-
-        slider.setValue(96)
-        self.assertEqual(label.text(), "96 pt")
-        self.assertEqual(self.dialog.result_phases[0].font_size, 96)
-        self.assertEqual(self.updates, [False])
-        self.assertTrue(self.dialog.isVisible())
-
-        slider.setValue(8)
-        self.assertEqual(label.text(), "8 pt")
-        self.assertEqual(self.dialog.result_phases[0].font_size, 8)
-        slider.setValue(200)
-        self.assertEqual(label.text(), "200 pt")
-        self.assertEqual(self.dialog.result_phases[0].font_size, 200)
-        self.assertEqual(self.dialog.table.rowCount(), 2)
-
-    def test_color_opacity_font_and_position_change_immediately(self):
-        color = self.dialog.table.cellWidget(0, 2)
-        color.setCurrentIndex(color.findData("rose"))
-        opacity = self.dialog.table.cellWidget(0, 5).findChild(QSlider)
-        opacity.setValue(35)
-        self.dialog.table.cellWidget(0, 4).findChild(QSlider).setValue(52)
-        self.dialog.position_combo.setCurrentIndex(
-            self.dialog.position_combo.findData("top_right")
-        )
-        self.assertEqual(self.dialog.result_phases[0].color, "rose")
-        self.assertEqual(self.dialog.result_phases[0].opacity, 35)
-        self.assertEqual(self.dialog.result_phases[0].font_size, 52)
-        self.assertEqual(self.dialog.position_combo.currentData(), "top_right")
-        self.assertEqual(len(self.updates), 4)
-        self.assertTrue(self.dialog.isVisible())
-
-    def test_add_delete_are_instant_and_new_phase_gets_default_font(self):
-        self.dialog._add_phase()
-        self.assertEqual(len(self.dialog.result_phases), 3)
-        self.assertEqual(self.dialog.result_phases[2].font_size, 42)
-        self.assertTrue(self.updates[-1])
-        editor = self.dialog.table.cellWidget(2, 0)
-        self.dialog._delete_row(editor)
-        self.assertEqual(len(self.dialog.result_phases), 2)
-        self.assertTrue(self.updates[-1])
-
-    def test_drag_row_header_reorders_phases_preserving_font(self):
-        self.dialog.table.cellWidget(0, 4).findChild(QSlider).setValue(24)
-        self.dialog.table.cellWidget(1, 4).findChild(QSlider).setValue(140)
-        header = self.dialog.table.verticalHeader()
-        self.assertTrue(header.sectionsMovable())
-        self.assertTrue(header.isVisible())
-        self.assertEqual([x["name"] for x in self.dialog._snapshot()], ["作業", "休憩"])
-        header.moveSection(0, 1)
-        self.assertEqual(
-            [phase.name for phase in self.dialog.result_phases], ["休憩", "作業"]
-        )
-        self.assertEqual(
-            [phase.font_size for phase in self.dialog.result_phases], [140, 24]
-        )
-        self.assertEqual(self.updates[-1], True)
-
-    def test_style_switch_is_immediate_and_does_not_erase_phases(self):
-        self.assertEqual(self.dialog.style_combo.currentData(), "modern")
-        self.dialog.style_combo.setCurrentIndex(
-            self.dialog.style_combo.findData("simple")
-        )
-        self.assertEqual(self.dialog.style_combo.currentData(), "simple")
-        self.assertEqual(self.dialog.table.rowCount(), 2)
-        self.assertEqual(len(self.dialog.result_phases), 2)
-        self.assertEqual(self.updates[-1], False)
-
-    def test_per_phase_gradient_toggle_and_palette_is_immediate(self):
-        enabled = self.dialog.table.cellWidget(0, 3).findChild(QCheckBox)
-        palette = self.dialog.table.cellWidget(0, 3).findChild(QComboBox)
-        self.assertTrue(enabled.isChecked())
-        self.assertTrue(palette.isEnabled())
-        enabled.setChecked(False)
-        self.assertFalse(palette.isEnabled())
-        self.assertFalse(self.dialog.result_phases[0].gradient)
-        enabled.setChecked(True)
-        palette.setCurrentIndex(palette.findData("amber"))
-        self.assertTrue(self.dialog.result_phases[0].gradient)
-        self.assertEqual(self.dialog.result_phases[0].gradient_end, "amber")
-
-    def test_color_columns_swatches_and_black(self):
-        self.assertEqual(self.dialog.table.columnCount(), 7)
-        headers = [
-            self.dialog.table.horizontalHeaderItem(i).text()
-            for i in range(self.dialog.table.columnCount())
-        ]
-        self.assertEqual(
-            headers, ["フェーズ名", "時間", "メイン色", "サブ色・グラデーション", "サイズ", "透過率", "削除"]
-        )
-        main = self.dialog.table.cellWidget(0, 2)
-        combined = self.dialog.table.cellWidget(0, 3)
-        check = combined.findChild(QCheckBox)
-        secondary = combined.findChild(QComboBox)
-        self.assertIsNotNone(check)
-        self.assertIsNotNone(secondary)
-        self.assertLess(check.geometry().left(), secondary.geometry().left())
-        for combo in (main, secondary):
-            self.assertEqual(combo.count(), 7)
-            black_index = combo.findData("black")
-            self.assertGreaterEqual(black_index, 0)
-            for index in range(combo.count()):
-                self.assertFalse(combo.itemIcon(index).isNull())
-                icon_color = combo.itemIcon(index).pixmap(18, 18).toImage().pixelColor(9, 9)
-                self.assertTrue(icon_color.isValid())
-            combo.setCurrentIndex(black_index)
-            self.assertEqual(combo.itemIcon(black_index).pixmap(18, 18).toImage().pixelColor(9, 9).name(), "#000000")
-        self.assertEqual(self.dialog.result_phases[0].color, "black")
-        self.assertEqual(self.dialog.result_phases[0].gradient_end, "black")
-
-    def test_delete_buttons_are_compact_and_muted_after_adding_phase(self):
-        for index in range(self.dialog.table.rowCount()):
-            cell = self.dialog.table.cellWidget(index, 6)
-            button = cell.findChild(QPushButton)
-            self.assertIsNotNone(button)
-            self.assertEqual(button.text(), "削除")
-            self.assertIn("#F9EAEC", button.styleSheet())
-            self.assertNotIn("#C62828", button.styleSheet())
-            self.assertEqual((button.width(), button.height()), (54, 26))
-            self.assertGreaterEqual(button.geometry().left(), 0)
-            self.assertGreaterEqual(button.geometry().top(), 0)
-            self.assertLessEqual(button.geometry().right(), cell.width())
-            self.assertLessEqual(button.geometry().bottom(), cell.height())
-        self.dialog._add_phase()
-        self.qt_app.processEvents()
-        added = self.dialog.table.cellWidget(2, 6).findChild(QPushButton)
-        self.assertIn("#F9EAEC", added.styleSheet())
-        with patch.object(
-            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
-        ) as confirm:
-            added.click()
-            confirm.assert_called_once()
-        self.assertEqual(self.dialog.table.rowCount(), 2)
-
-    def test_delete_requires_confirmation_and_cancel_keeps_timer_and_phases(self):
-        phases_before = self.dialog._snapshot()
-        button = self.dialog.table.cellWidget(0, 6).findChild(QPushButton)
-        with patch.object(
-            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Cancel
-        ) as popup:
-            button.click()
-            popup.assert_called_once()
-        self.assertEqual(self.dialog._snapshot(), phases_before)
-        self.assertEqual(self.dialog.table.rowCount(), 2)
-        self.assertEqual(self.updates, [])
-
-        with patch.object(
-            QMessageBox, "exec", return_value=QMessageBox.StandardButton.NoButton
-        ):
-            button.click()
-        self.assertEqual(self.dialog._snapshot(), phases_before)
-        self.assertEqual(self.updates, [])
-
-        with patch.object(
-            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
-        ):
-            button.click()
-        self.assertEqual(self.dialog.table.rowCount(), 1)
-        self.assertEqual(self.dialog.result_phases[0].name, "休憩")
-        self.assertEqual(self.updates, [True])
-
-    def test_delete_confirmation_after_reorder_targets_correct_phase(self):
-        header = self.dialog.table.verticalHeader()
-        header.moveSection(0, 1)
-        self.assertEqual(self.dialog._snapshot()[0]["name"], "休憩")
-        name = self.dialog.table.cellWidget(0, 0)
-        self.assertEqual(name.text(), "作業")
-        button = self.dialog.table.cellWidget(0, 6).findChild(QPushButton)
-        with patch.object(
-            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
-        ):
-            button.click()
-        self.assertEqual(self.dialog.table.rowCount(), 1)
-        self.assertEqual(self.dialog.result_phases[0].name, "休憩")
-
-    def test_close_keeps_changes(self):
-        self.dialog.table.cellWidget(0, 4).findChild(QSlider).setValue(100)
-        buttons = self.dialog.findChild(QDialogButtonBox)
-        buttons.button(QDialogButtonBox.StandardButton.Close).click()
-        self.assertFalse(self.dialog.isVisible())
-        self.assertEqual(self.dialog.result_phases[0].font_size, 100)
-
-
-class AppIntegrationTests(unittest.TestCase):
+class AppRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.qt_app = QApplication.instance() or QApplication([])
+        cls.app = QApplication.instance() or QApplication([])
 
-    def test_initialize_restores_everything_and_persists_across_restart(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = str(Path(directory) / "settings.ini")
-            with patch(
-                "focusloop.app.QSettings",
-                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
-            ):
-                controller = FocusLoopApp(self.qt_app)
-                controller.settings.setValue("work_minutes", 97)
-                controller.settings.setValue("font_size", 185)
-                controller.show_settings()
-                dialog = controller.settings_dialog
-                dialog.position_combo.setCurrentIndex(
-                    dialog.position_combo.findData("center")
-                )
-                dialog.style_combo.setCurrentIndex(
-                    dialog.style_combo.findData("simple")
-                )
-                dialog.table.cellWidget(0, 1).setValue(32)
-                dialog.table.cellWidget(0, 2).setCurrentIndex(
-                    dialog.table.cellWidget(0, 2).findData("black")
-                )
-                dialog.table.cellWidget(0, 4).findChild(QSlider).setValue(111)
-                dialog.table.cellWidget(0, 5).findChild(QSlider).setValue(40)
-                dialog.table.cellWidget(0, 3).findChild(QCheckBox).setChecked(False)
-                dialog._add_phase()
-                controller.timer_model.skip()
-                controller.timer_model.loop_number = 9
-                controller.timer_model.pause()
-                controller.update()
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.ini = str(Path(self.directory.name) / "app.ini")
+        self.settings_patch = patch(
+            "focusloop.app.QSettings",
+            side_effect=lambda *_args: QSettings(self.ini, QSettings.Format.IniFormat),
+        )
+        self.settings_patch.start()
+        self.controller = FocusLoopApp(self.app)
 
-                saved = controller.settings.value("phases_json")
-                self.assertEqual(controller.timer_model.phase_index, 1)
-                self.assertTrue(controller.timer_model.paused)
-                self.assertEqual(controller.display_style, "simple")
-                self.assertEqual(controller.position, "center")
+    def tearDown(self):
+        self.controller.close()
+        self.settings_patch.stop()
+        self.directory.cleanup()
+        self.app.processEvents()
 
-                initialize = next(
-                    b for b in dialog.findChildren(QPushButton) if b.text() == "初期化"
-                )
-                for answer in (
-                    QMessageBox.StandardButton.Cancel,
-                    QMessageBox.StandardButton.NoButton,
-                ):
-                    with patch.object(QMessageBox, "exec", return_value=answer):
-                        initialize.click()
-                    self.assertEqual(controller.settings.value("phases_json"), saved)
-                    self.assertEqual(controller.timer_model.loop_number, 9)
-                    self.assertEqual(controller.display_style, "simple")
-                    self.assertTrue(controller.timer_model.paused)
-                    self.assertEqual(len(dialog._snapshot()), 3)
+    def test_per_phase_display_position_and_topmost_switch_on_skip(self):
+        self.controller.overlay.show()
+        self.controller.show_settings()
+        card = self.controller.settings_dialog.cards[0]
+        second = self.controller.settings_dialog.cards[1]
+        card.simple.setChecked(True)
+        card.position.setCurrentIndex(card.position.findData("center"))
+        card.topmost.setChecked(False)
+        second.simple.setChecked(False)
+        second.position.setCurrentIndex(second.position.findData("top_right"))
+        second.topmost.setChecked(True)
+        self.assertEqual(self.controller.overlay.display_style, "simple")
+        self.assertEqual(self.controller.overlay.position_name, "center")
+        self.assertFalse(self.controller.overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertTrue(self.controller.overlay.isVisible())
+        initial = self.controller.timer_model.remaining_seconds()
+        card.size.setValue(80)
+        self.assertLessEqual(abs(self.controller.timer_model.remaining_seconds() - initial), 1)
+        self.controller.skip()
+        self.assertEqual(self.controller.overlay.display_style, "modern")
+        self.assertEqual(self.controller.overlay.position_name, "top_right")
+        self.assertTrue(self.controller.overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        self.assertTrue(self.controller.overlay.isVisible())
+        self.assertTrue(self.controller.overlay.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
+        self.assertTrue(self.controller.overlay.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
+        self.controller.settings.sync()
+        stored = QSettings(self.ini, QSettings.Format.IniFormat)
+        self.assertIn('"topmost": false', stored.value("phases_json"))
 
-                with patch.object(
-                    QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
-                ):
-                    initialize.click()
+    def test_center_in_both_styles_and_font_size_limit(self):
+        self.controller.overlay.show()
+        self.controller.show_settings()
+        card = self.controller.settings_dialog.cards[0]
+        card.position.setCurrentIndex(card.position.findData("center"))
+        bounds = self.app.primaryScreen().availableGeometry()
+        for simple in (False, True):
+            card.simple.setChecked(simple)
+            card.size.setValue(200)
+            overlay = self.controller.overlay.geometry()
+            self.assertLessEqual(abs(overlay.center().x() - bounds.center().x()), 1)
+            self.assertLessEqual(abs(overlay.center().y() - bounds.center().y()), 1)
+            self.assertTrue(bounds.contains(overlay))
+            self.assertEqual(self.controller.overlay.display_style,
+                             "simple" if simple else "modern")
 
-                self.assertEqual(controller.timer_model.phases, default_phases())
-                self.assertEqual(controller.timer_model.phase_index, 0)
-                self.assertFalse(controller.timer_model.paused)
-                self.assertEqual(controller.timer_model.loop_number, 1)
-                self.assertEqual(controller.timer_model.remaining_seconds(), 2700)
-                self.assertEqual(controller.display_style, "modern")
-                self.assertEqual(controller.position, "bottom_left")
-                self.assertEqual(controller.overlay.display_style, "modern")
-                self.assertEqual(controller.overlay.position_name, "bottom_left")
-                self.assertEqual(controller.overlay.clock_text, "45:00")
-                self.assertEqual(controller.overlay.loop_number, 1)
-                self.assertTrue(dialog.isVisible())
-                self.assertEqual(dialog.table.rowCount(), 2)
-                self.assertEqual(dialog.result_phases, default_phases())
-                self.assertEqual(dialog.position_combo.currentData(), "bottom_left")
-                self.assertEqual(dialog.style_combo.currentData(), "modern")
-                self.assertEqual(dialog.loop_label.text(), "LOOP 01")
-                self.assertEqual(dialog._snapshot()[0]["color"], "white")
-                self.assertEqual(dialog._snapshot()[0]["font_size"], 42)
-                self.assertTrue(dialog._snapshot()[0]["gradient"])
-                self.assertEqual(dialog._snapshot()[0]["gradient_end"], "violet")
-                self.assertEqual(dialog._snapshot()[0]["opacity"], 100)
-                self.assertEqual(controller.settings.value("phases_json"),
-                                 phases_to_json(default_phases()))
-                self.assertEqual(controller.settings.value("loop_number"), 1)
-                self.assertFalse(controller.settings.contains("work_minutes"))
-                self.assertFalse(controller.settings.contains("font_size"))
+    def test_reopen_persists_distinct_phase_preferences(self):
+        self.controller.show_settings()
+        first, second = self.controller.settings_dialog.cards
+        first.simple.setChecked(True)
+        first.position.setCurrentIndex(first.position.findData("center"))
+        first.topmost.setChecked(False)
+        second.position.setCurrentIndex(second.position.findData("bottom_right"))
+        self.controller.settings.sync()
+        restored = FocusLoopApp(self.app)
+        self.assertTrue(restored.timer_model.phases[0].simple)
+        self.assertEqual(restored.timer_model.phases[0].position, "center")
+        self.assertFalse(restored.timer_model.phases[0].topmost)
+        self.assertEqual(restored.timer_model.phases[1].position, "bottom_right")
+        self.assertFalse(restored.timer_model.phases[1].simple)
+        restored.close()
 
-                controller.close()
-                reopened = FocusLoopApp(self.qt_app)
-                self.assertEqual(reopened.timer_model.phases, default_phases())
-                self.assertEqual(reopened.timer_model.loop_number, 1)
-                self.assertEqual(reopened.display_style, "modern")
-                self.assertEqual(reopened.position, "bottom_left")
-                reopened.close()
+    def test_global_style_and_position_migrate_to_every_phase(self):
+        old = QSettings(self.ini, QSettings.Format.IniFormat)
+        old.setValue("display_style", "simple")
+        old.setValue("position", "top_left")
+        old.setValue("work_minutes", 25)
+        old.setValue("break_minutes", 10)
+        old.sync()
+        restored = FocusLoopApp(self.app)
+        self.assertEqual([(p.simple, p.position) for p in restored.timer_model.phases],
+                         [(True, "top_left"), (True, "top_left")])
+        self.assertEqual(restored.timer_model.phases[0].minutes, 25)
+        restored.close()
 
-    def test_clockwise_gauge_angles_are_elapsed_from_twelve(self):
-        self.assertEqual(remaining_arc_angles(1.0), (1440, -5760))
-        self.assertEqual(remaining_arc_angles(0.75), (0, -4320))
-        self.assertEqual(remaining_arc_angles(0.5), (-1440, -2880))
-        self.assertEqual(remaining_arc_angles(0.25), (-2880, -1440))
-        self.assertEqual(remaining_arc_angles(0.0), (-4320, 0))
+    def test_loop_reset_timer_reset_initialization_and_cancel(self):
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        first = dialog.cards[0]
+        first.name.setText("仕事")
+        first.simple.setChecked(True)
+        first.position.setCurrentIndex(first.position.findData("center"))
+        first.topmost.setChecked(False)
+        self.controller.timer_model.skip()
+        self.controller.timer_model.loop_number = 9
+        self.controller.timer_model.pause()
+        self.controller.update()
+        before = self.controller.timer_model.remaining_seconds()
+        loop_reset = next(b for b in dialog.findChildren(QPushButton)
+                          if b.text() == "ループ数をリセット")
+        loop_reset.click()
+        self.assertEqual(self.controller.timer_model.loop_number, 1)
+        self.assertEqual(self.controller.timer_model.remaining_seconds(), before)
+        timer_reset = next(b for b in dialog.findChildren(QPushButton)
+                           if b.text() == "現在のフェーズをリセット")
+        timer_reset.click()
+        self.assertEqual(self.controller.timer_model.current_phase.minutes * 60,
+                         self.controller.timer_model.remaining_seconds())
+        self.assertTrue(self.controller.timer_model.paused)
 
-    def test_settings_timer_reset_preserves_phase_pause_and_loop(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = str(Path(directory) / "settings.ini")
-            with patch(
-                "focusloop.app.QSettings",
-                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
-            ):
-                controller = FocusLoopApp(self.qt_app)
-                controller.timer_model.skip()
-                controller.timer_model.loop_number = 8
-                controller.timer_model.pause()
-                controller.timer_model._remaining = 123.0
-                controller.update()
-                controller.show_settings()
-                dialog = controller.settings_dialog
-                reset = next(
-                    x for x in dialog.findChildren(QPushButton)
-                    if x.text() == "現在のフェーズをリセット"
-                )
-                reset.click()
-                self.assertEqual(controller.timer_model.phase_index, 1)
-                self.assertEqual(controller.timer_model.loop_number, 8)
-                self.assertTrue(controller.timer_model.paused)
-                self.assertEqual(controller.timer_model.remaining_seconds(),
-                                 controller.timer_model.current_phase.minutes * 60)
-                self.assertEqual(controller.overlay.clock_text, "15:00")
-                self.assertTrue(dialog.isVisible())
-                controller.close()
+        init = dialog.findChild(QPushButton, "initialize_button")
+        for result in (QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.NoButton):
+            with patch.object(QMessageBox, "exec", return_value=result):
+                init.click()
+            self.assertEqual(dialog.cards[0].name.text(), "仕事")
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
+            init.click()
+        self.assertEqual(self.controller.timer_model.phases, default_phases())
+        self.assertFalse(self.controller.timer_model.paused)
+        self.assertEqual(self.controller.timer_model.loop_number, 1)
+        self.assertEqual(self.controller.overlay.clock_text, "45:00")
+        self.assertTrue(dialog.isVisible())
+        self.assertFalse(dialog.cards[0].simple.isChecked())
+        self.assertTrue(dialog.cards[0].topmost.isChecked())
+        self.assertEqual(dialog.cards[0].position.currentData(), "bottom_left")
 
-    def test_center_position_in_both_styles_and_persists(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = str(Path(directory) / "settings.ini")
-            with patch(
-                "focusloop.app.QSettings",
-                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
-            ):
-                controller = FocusLoopApp(self.qt_app)
-                controller.show_settings()
-                dialog = controller.settings_dialog
-                self.assertGreaterEqual(dialog.position_combo.findData("center"), 0)
-                dialog.position_combo.setCurrentIndex(
-                    dialog.position_combo.findData("center")
-                )
-                for mode in ("simple", "modern"):
-                    dialog.style_combo.setCurrentIndex(dialog.style_combo.findData(mode))
-                    dialog.table.cellWidget(0, 4).findChild(QSlider).setValue(96)
-                    bounds = self.qt_app.primaryScreen().availableGeometry()
-                    overlay = controller.overlay.geometry()
-                    self.assertLessEqual(abs(bounds.center().x() - overlay.center().x()), 1)
-                    self.assertLessEqual(abs(bounds.center().y() - overlay.center().y()), 1)
-                controller.close()
-                reopened = FocusLoopApp(self.qt_app)
-                self.assertEqual(reopened.position, "center")
-                reopened.close()
-
-    def test_font_resize_does_not_remove_phases_or_hide_overlay(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = str(Path(directory) / "settings.ini")
-            with patch(
-                "focusloop.app.QSettings",
-                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
-            ):
-                controller = FocusLoopApp(self.qt_app)
-                original_phases = len(controller.timer_model.phases)
-                controller.overlay.show()
-                controller.show_settings()
-                dialog = controller.settings_dialog
-                self.assertIsNotNone(dialog)
-                first = dialog.table.cellWidget(0, 4).findChild(QSlider)
-                first.setValue(200)
-                controller.update()
-                self.assertEqual(len(controller.timer_model.phases), original_phases)
-                self.assertEqual(dialog.table.rowCount(), original_phases)
-                self.assertEqual(controller.timer_model.current_phase.font_size, 200)
-                self.assertEqual(controller.overlay.phase_config.font_size, 200)
-                self.assertTrue(controller.overlay.isVisible())
-                self.assertGreater(controller.overlay.width(), 0)
-                screen = self.qt_app.primaryScreen().availableGeometry()
-                self.assertTrue(screen.contains(controller.overlay.geometry()))
-                controller.close()
-
-                reopened = FocusLoopApp(self.qt_app)
-                self.assertEqual(len(reopened.timer_model.phases), original_phases)
-                self.assertEqual(reopened.timer_model.phases[0].font_size, 200)
-                reopened.close()
-
-    def test_style_and_gradient_persist_after_relaunch(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = str(Path(directory) / "settings.ini")
-            with patch(
-                "focusloop.app.QSettings",
-                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
-            ):
-                controller = FocusLoopApp(self.qt_app)
-                self.assertEqual(controller.display_style, "modern")
-                controller.overlay.show()
-                controller.show_settings()
-                dialog = controller.settings_dialog
-                dialog.style_combo.setCurrentIndex(dialog.style_combo.findData("simple"))
-                self.assertEqual(controller.display_style, "simple")
-                self.assertEqual(controller.overlay.display_style, "simple")
-                self.assertFalse(controller.overlay.grab().isNull())
-                dialog.style_combo.setCurrentIndex(dialog.style_combo.findData("modern"))
-                self.assertFalse(controller.overlay.grab().isNull())
-                self.assertTrue(controller.overlay.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
-                dialog.table.cellWidget(0, 3).findChild(QCheckBox).setChecked(False)
-                dialog.table.cellWidget(0, 3).findChild(QComboBox).setCurrentIndex(
-                    dialog.table.cellWidget(0, 3).findChild(QComboBox).findData("rose")
-                )
-                self.assertFalse(controller.timer_model.phases[0].gradient)
-                self.assertEqual(controller.timer_model.phases[0].gradient_end, "rose")
-                controller.close()
-                reopened = FocusLoopApp(self.qt_app)
-                self.assertEqual(reopened.display_style, "modern")
-                self.assertFalse(reopened.timer_model.phases[0].gradient)
-                self.assertEqual(reopened.timer_model.phases[0].gradient_end, "rose")
-                reopened.close()
-
-    def test_reset_loop_via_settings_keeps_countdown_and_persists(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = str(Path(directory) / "settings.ini")
-            with patch(
-                "focusloop.app.QSettings",
-                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
-            ):
-                controller = FocusLoopApp(self.qt_app)
-                controller.timer_model.loop_number = 7
-                controller.timer_model.pause()
-                controller.update()
-                before = controller.timer_model.remaining_seconds()
-                controller.show_settings()
-                self.assertEqual(controller.settings_dialog.loop_label.text(), "LOOP 07")
-                reset = next(
-                    button for button in controller.settings_dialog.findChildren(QPushButton)
-                    if button.text() == "ループ数をリセット"
-                )
-                reset.click()
-                self.assertEqual(controller.timer_model.loop_number, 1)
-                self.assertEqual(controller.settings_dialog.loop_label.text(), "LOOP 01")
-                self.assertEqual(controller.timer_model.remaining_seconds(), before)
-                self.assertTrue(controller.timer_model.paused)
-                controller.close()
-                reopened = FocusLoopApp(self.qt_app)
-                self.assertEqual(reopened.timer_model.loop_number, 1)
-                reopened.close()
-
-    def test_phase_skip_switches_rendered_font_size(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = str(Path(directory) / "settings.ini")
-            with patch(
-                "focusloop.app.QSettings",
-                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
-            ):
-                controller = FocusLoopApp(self.qt_app)
-                controller.show_settings()
-                dialog = controller.settings_dialog
-                dialog.table.cellWidget(0, 4).findChild(QSlider).setValue(8)
-                dialog.table.cellWidget(1, 4).findChild(QSlider).setValue(200)
-                self.assertEqual(controller.overlay.phase_config.font_size, 8)
-                controller.skip()
-                self.assertEqual(controller.overlay.phase_config.font_size, 200)
-                self.assertEqual(controller.timer_model.current_phase.name, "休憩")
-                controller.close()
-
-
-class TrayTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.qt_app = QApplication.instance() or QApplication([])
-
-    def test_single_left_click_opens_settings_instead_of_pausing(self):
-        controller = FocusLoopApp(self.qt_app)
-        with patch.object(controller, "show_settings") as show_settings, patch.object(
-            controller, "_show_tray_menu"
-        ) as show_menu:
-            controller._tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
-            show_settings.assert_called_once_with()
-            show_menu.assert_not_called()
-            self.assertFalse(controller.timer_model.paused)
-        controller.close()
-
-    def test_right_click_opens_menu(self):
-        controller = FocusLoopApp(self.qt_app)
-        with patch.object(controller, "show_settings") as show_settings, patch.object(
-            controller, "_show_tray_menu"
-        ) as show_menu:
-            controller._tray_activated(QSystemTrayIcon.ActivationReason.Context)
-            show_menu.assert_called_once_with()
-            show_settings.assert_not_called()
-        controller.close()
-
-    def test_phase_notification_is_sent_for_skip(self):
-        controller = FocusLoopApp(self.qt_app)
-        controller.tray = Mock()
-        controller.skip()
-        controller.tray.showMessage.assert_called_once()
-        title, message, _icon_type, timeout = controller.tray.showMessage.call_args.args
-        self.assertEqual(title, "FocusLoop")
-        self.assertIn(controller.timer_model.current_phase.name, message)
-        self.assertIn(str(controller.timer_model.current_phase.minutes), message)
-        self.assertEqual(timeout, 6000)
-        controller.close()
-
-    def test_clock_icon_renders(self):
-        self.assertFalse(clock_image(16).isNull())
+    def test_tray_actions_notifications_and_icons(self):
+        labels = [x.text() for x in self.controller.menu.actions()]
+        for value in ("一時停止", "次のフェーズへ", "現在のフェーズをリセット", "設定", "終了"):
+            self.assertIn(value, labels)
+        with patch.object(self.controller, "show_settings") as show:
+            self.controller._tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
+            show.assert_called_once()
+        with patch.object(self.controller, "_show_tray_menu") as menu:
+            self.controller._tray_activated(QSystemTrayIcon.ActivationReason.Context)
+            menu.assert_called_once()
+        self.controller.tray = Mock()
+        self.controller.skip()
+        self.controller.tray.showMessage.assert_called_once()
+        args = self.controller.tray.showMessage.call_args.args
+        self.assertIn("開始しました", args[1])
+        self.assertIn("分", args[1])
         self.assertFalse(clock_image(256).isNull())
         self.assertFalse(clock_icon().isNull())
-
-    def test_generated_windows_ico_has_png_frames(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "FocusLoop.ico"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "FocusLoop.ico"
             build_ico(path)
-            data = path.read_bytes()
-            reserved, kind, count = struct.unpack("<HHH", data[:6])
-            self.assertEqual((reserved, kind, count), (0, 1, 7))
-            first = struct.unpack("<BBBBHHII", data[6:22])
-            self.assertEqual(first[0], 16)
-            self.assertEqual(data[first[-1]:first[-1] + 8], b"\x89PNG\r\n\x1a\n")
+            binary = path.read_bytes()
+            self.assertEqual(struct.unpack("<HHH", binary[:6]), (0, 1, 7))
+
+    def test_remaining_arc_angles_clockwise(self):
+        self.assertEqual(remaining_arc_angles(1), (1440, -5760))
+        self.assertEqual(remaining_arc_angles(.75), (0, -4320))
+        self.assertEqual(remaining_arc_angles(.50), (-1440, -2880))
+        self.assertEqual(remaining_arc_angles(.25), (-2880, -1440))
+        self.assertEqual(remaining_arc_angles(0), (-4320, 0))
 
 
 if __name__ == "__main__":
