@@ -15,8 +15,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image, ImageDraw, ImageFont
-from PySide6.QtCore import QPoint, QRegion, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QImage, QPainter, QRegion
 from PySide6.QtWidgets import QApplication, QWidget
 
 from focusloop.app import SettingsDialog
