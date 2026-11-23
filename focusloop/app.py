@@ -263,7 +263,7 @@ class SettingsDialog(QDialog):
             "QPushButton:hover { background-color: #D32F2F; } "
             "QPushButton:pressed { background-color: #8E0000; }"
         )
-        delete.clicked.connect(lambda checked=False, editor=name: self._delete_row(editor))
+        delete.clicked.connect(lambda checked=False, editor=name: self._confirm_delete_row(editor))
         self.table.setCellWidget(row, 6, delete)
 
         name.textChanged.connect(lambda _text: self._notify_change())
@@ -350,6 +350,32 @@ class SettingsDialog(QDialog):
             if self.table.cellWidget(index, 0) is editor:
                 return index
         return -1
+
+    def _confirm_delete_row(self, editor: QWidget) -> None:
+        """Ask before removing a phase; Cancel/escape leaves all settings intact."""
+        row = self._row_for_editor(editor)
+        if row < 0:
+            return
+        if self.table.rowCount() <= 1:
+            QMessageBox.information(self, "FocusLoop", "フェーズは最低1つ必要です。")
+            return
+
+        phase_name = editor.text()
+        message = QMessageBox(self)
+        message.setWindowTitle("FocusLoop - フェーズ削除")
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setText(f"「{phase_name}」を削除しますか？")
+        message.setInformativeText("この操作は取り消せません。")
+        message.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        confirm = message.button(QMessageBox.StandardButton.Yes)
+        confirm.setText("削除する")
+        cancel = message.button(QMessageBox.StandardButton.Cancel)
+        cancel.setText("キャンセル")
+        message.setDefaultButton(cancel)
+        if message.exec() == QMessageBox.StandardButton.Yes:
+            self._delete_row(editor)
 
     def _delete_row(self, editor: QWidget) -> None:
         if self.table.rowCount() <= 1:
