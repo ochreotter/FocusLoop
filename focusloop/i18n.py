@@ -55,7 +55,7 @@ ENGLISH = {
     "すべての設定を初期化しますか？": "Reset all settings?",
     "フェーズ・色・サイズ・表示位置・表示モード・最前面・ループ数を初期値に戻し、作業中45:00からタイマーを再開します。この操作は取り消せません。":
         "Restore the default phases, colors, sizes, positions, display modes, "
-        "topmost settings and loop count. The timer restarts at Working 45:00. "
+        "topmost settings and loop count. The timer restarts at the first phase (45:00). "
         "This action cannot be undone.",
     "設定初期化する": "Reset settings",
     "ホワイト": "White",
