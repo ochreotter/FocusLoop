@@ -86,6 +86,28 @@ class IssueContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PhaseConfig("X", 1, opacity=101)
 
+    def test_43_44_old_global_display_fields_migrate_per_phase(self):
+        legacy = json.dumps([
+            {"name": "従来", "minutes": 12, "color": "rose", "opacity": 100}
+        ])
+        restored = phases_from_json(
+            legacy, legacy_position="top_right", legacy_simple=True,
+        )
+        self.assertEqual(len(restored), 1)
+        self.assertEqual(restored[0].position, "top_right")
+        self.assertTrue(restored[0].simple)
+        self.assertTrue(restored[0].topmost)
+        updated = replace(restored[0], position="center", simple=False, topmost=False)
+        roundtrip = phases_from_json(phases_to_json((updated,)), legacy_position="top_left",
+                                     legacy_simple=True)
+        self.assertEqual(roundtrip, (updated,))
+        for invalid in ({"simple": 1}, {"position": "outside"}, {"topmost": "yes"}):
+            data = {
+                "name": "invalid", "minutes": 5, "color": "white", "opacity": 100,
+                **invalid,
+            }
+            self.assertEqual(phases_from_json(json.dumps([data])), default_phases())
+
     def test_10_15_19_legacy_settings_and_invalid_fallback(self):
         old = json.dumps([{
             "name": "旧作業", "minutes": 18, "color": "sky", "opacity": 45,
