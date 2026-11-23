@@ -447,16 +447,11 @@ class SettingsDialog(QDialog):
         self.set_pause_state(timer.paused)
         self.pause_button.clicked.connect(lambda: self.pause_toggle.emit())
         loop_reset = QPushButton("ループ数をリセット", self)
+        loop_reset.setObjectName("loop_reset_button")
         loop_reset.clicked.connect(lambda: self.loop_reset.emit())
         timer_reset = QPushButton("現在のフェーズをリセット", self)
+        timer_reset.setObjectName("timer_reset_button")
         timer_reset.clicked.connect(lambda: self.timer_reset.emit())
-
-        top = QHBoxLayout()
-        top.addWidget(self.loop_label)
-        top.addWidget(loop_reset)
-        top.addStretch()
-        top.addWidget(self.pause_button)
-        top.addWidget(timer_reset)
 
         self.cards_container = QWidget(self)
         self.cards_layout = QVBoxLayout(self.cards_container)
@@ -479,7 +474,7 @@ class SettingsDialog(QDialog):
         )
         note.setWordWrap(True)
 
-        initialize = QPushButton("初期化", self)
+        initialize = QPushButton("設定初期化", self)
         initialize.setObjectName("initialize_button")
         initialize.setToolTip("設定とタイマーをすべて初期値に戻す")
         initialize.clicked.connect(self._confirm_initialize)
@@ -487,12 +482,16 @@ class SettingsDialog(QDialog):
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("閉じる")
         buttons.rejected.connect(self.reject)
         footer = QHBoxLayout()
-        footer.addWidget(initialize)
+        footer.setSpacing(6)
+        footer.addWidget(self.loop_label)
+        footer.addWidget(loop_reset)
+        footer.addWidget(timer_reset)
         footer.addStretch()
+        footer.addWidget(self.pause_button)
+        footer.addWidget(initialize)
         footer.addWidget(buttons)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
         layout.addWidget(self.scroll, 1)
         layout.addWidget(add_button)
         layout.addWidget(note)
@@ -597,10 +596,10 @@ class SettingsDialog(QDialog):
 
     def _confirm_initialize(self) -> None:
         if confirm_change(
-            self, "FocusLoop - 初期化", "すべての設定を初期化しますか？",
+            self, "FocusLoop - 設定初期化", "すべての設定を初期化しますか？",
             "フェーズ・色・サイズ・表示位置・表示モード・最前面・ループ数を初期値に戻し、"
             "作業45:00からタイマーを再開します。この操作は取り消せません。",
-            "初期化する",
+            "設定初期化する",
         ):
             self.initialize_requested.emit()
 
