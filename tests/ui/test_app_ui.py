@@ -164,6 +164,27 @@ class CardSettingsTests(unittest.TestCase):
         self.assertTrue(self.events)
         self.assertTrue(all(restart is False for restart in self.events))
 
+    def test_update_controls_show_version_without_changing_timer(self):
+        version = self.dialog.version_label.text()
+        self.assertEqual(version, "1.0.1")
+        self.assertEqual(self.dialog.update_button.text(), "更新を確認")
+        self.assertTrue(self.dialog.update_button.isEnabled())
+        phases = [card.snapshot() for card in self.dialog.cards]
+
+        self.dialog.set_update_status(True, "ダウンロード中... 25%")
+        self.assertFalse(self.dialog.update_button.isEnabled())
+        self.assertEqual(self.dialog.update_button.text(), "ダウンロード中... 25%")
+        self.dialog.set_update_status(False)
+        self.assertTrue(self.dialog.update_button.isEnabled())
+        self.assertEqual([card.snapshot() for card in self.dialog.cards], phases)
+        self.assertEqual(self.events, [])
+
+        self.dialog.language_combo.setCurrentIndex(
+            self.dialog.language_combo.findData("en")
+        )
+        self.assertEqual(self.dialog.update_button.text(), "Check for updates")
+        self.assertEqual(self.dialog.version_label.text(), version)
+
     def test_all_buttons_and_checkboxes_show_pointing_hand(self):
         for button in self.dialog.findChildren(QAbstractButton):
             self.assertEqual(
