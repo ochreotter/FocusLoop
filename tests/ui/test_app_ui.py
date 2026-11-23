@@ -54,7 +54,7 @@ class CardSettingsTests(unittest.TestCase):
         self.assertIn("最前面ON", first.summary.text())
         self.assertFalse(first.hidden.isChecked())
         self.assertNotIn("非表示", first.summary.text())
-        self.assertIn("ホワイト", first.summary.text())
+        self.assertIn("アンバー", first.summary.text())
         self.assertIn("標準", first.summary.text())
         self.assertFalse(hasattr(first, "main_swatch"))
         self.assertFalse(hasattr(first, "sub_swatch"))
@@ -192,12 +192,12 @@ class CardSettingsTests(unittest.TestCase):
         self.assertTrue(self.dialog.cards[-1].expand_button.isChecked())
         self.assertTrue(self.dialog.cards[0].expand_button.isChecked())
         self.dialog._reorder_cards(first, self.dialog.cards[-1])
-        self.assertEqual([c.name.text() for c in self.dialog.cards], ["休憩", "新しいフェーズ", "作業"])
+        self.assertEqual([c.name.text() for c in self.dialog.cards], ["休憩中", "新しいフェーズ", "作業中"])
         self.assertEqual(self.dialog.result_phases[-1].position, "top_right")
         self.assertFalse(self.dialog.result_phases[-1].topmost)
         self.assertTrue(self.events[-1])
         self.dialog.cards[-1].move_up.click()
-        self.assertEqual([c.name.text() for c in self.dialog.cards], ["休憩", "作業", "新しいフェーズ"])
+        self.assertEqual([c.name.text() for c in self.dialog.cards], ["休憩中", "作業中", "新しいフェーズ"])
 
     def test_delete_confirmation_and_minimum_one_phase(self):
         first = self.dialog.cards[0]
@@ -209,7 +209,7 @@ class CardSettingsTests(unittest.TestCase):
         with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
             first.delete_button.click()
         self.assertEqual(len(self.dialog.cards), 1)
-        self.assertEqual(self.dialog.cards[0].name.text(), "休憩")
+        self.assertEqual(self.dialog.cards[0].name.text(), "休憩中")
         self.assertTrue(self.events[-1])
         with patch.object(QMessageBox, "information") as info:
             self.dialog.cards[0].delete_button.click()
@@ -226,7 +226,7 @@ class CardSettingsTests(unittest.TestCase):
         ):
             first.delete_button.click()
         self.assertEqual(len(self.dialog.cards), 1)
-        self.assertEqual(self.dialog.cards[0].name.text(), "休憩")
+        self.assertEqual(self.dialog.cards[0].name.text(), "休憩中")
         self.assertTrue(self.dialog.cards[0].expand_button.isChecked())
         self.assertTrue(self.dialog.cards[0].body.isVisible())
 
@@ -277,6 +277,10 @@ class CardSettingsTests(unittest.TestCase):
         )
         self.assertIs(buttons[0], self.dialog.loop_label)
         self.assertIs(buttons[3], self.dialog.pause_button)
+        self.assertIs(footer.itemAt(3).widget(), self.dialog.pause_button)
+        self.assertIsNotNone(footer.itemAt(4).spacerItem())
+        self.assertIs(footer.itemAt(5).widget(),
+                      self.dialog.findChild(QPushButton, "initialize_button"))
         self.assertIs(buttons[4], self.dialog.findChild(QPushButton, "initialize_button"))
         self.assertIsInstance(buttons[5], QDialogButtonBox)
 
@@ -322,6 +326,70 @@ class AppRegressionTests(unittest.TestCase):
         self.settings_patch.stop()
         self.directory.cleanup()
         self.app.processEvents()
+
+    def test_first_run_and_settings_reset_match_screenshot(self):
+        expected = default_phases()
+        self.assertEqual(self.controller.timer_model.phases, expected)
+        self.assertEqual(
+            [(p.name, p.minutes, p.color, p.gradient, p.gradient_end,
+              p.font_size, p.opacity, p.simple, p.position, p.topmost, p.hidden)
+             for p in expected],
+            [
+                ("作業中", 45, "amber", True, "rose", 50, 30,
+                 False, "bottom_left", True, False),
+                ("休憩中", 15, "mint", True, "white", 300, 20,
+                 False, "center", True, False),
+            ],
+        )
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        for card, phase in zip(dialog.cards, expected):
+            self.assertEqual(card.name.text(), phase.name)
+            self.assertEqual(card.minutes.value(), phase.minutes)
+            self.assertEqual(card.color.currentData(), phase.color)
+            self.assertEqual(card.gradient_end.currentData(), phase.gradient_end)
+            self.assertEqual(card.gradient.isChecked(), phase.gradient)
+            self.assertEqual(card.size.value(), phase.font_size)
+            self.assertEqual(card.opacity.value(), phase.opacity)
+            self.assertEqual(card.simple.isChecked(), phase.simple)
+            self.assertEqual(card.position.currentData(), phase.position)
+            self.assertEqual(card.topmost.isChecked(), phase.topmost)
+            self.assertEqual(card.hidden.isChecked(), phase.hidden)
+
+        # Saved customizations survive a second launch unless reset is requested.
+        first = dialog.cards[0]
+        first.name.setText("カスタム")
+        first.opacity.setValue(67)
+        first.position.setCurrentIndex(first.position.findData("top_right"))
+        self.controller.settings.sync()
+        reopened = FocusLoopApp(self.app)
+        self.assertEqual(reopened.timer_model.phases[0].name, "カスタム")
+        self.assertEqual(reopened.timer_model.phases[0].opacity, 67)
+        self.assertEqual(reopened.timer_model.phases[0].position, "top_right")
+        reopened.close()
+
+        reset = dialog.findChild(QPushButton, "initialize_button")
+        self.assertEqual(reset.text(), "設定初期化")
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Cancel):
+            reset.click()
+        self.assertEqual(self.controller.timer_model.phases[0].name, "カスタム")
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
+            reset.click()
+        self.assertEqual(self.controller.timer_model.phases, expected)
+        self.assertEqual(
+            [(card.name.text(), card.size.value(), card.opacity.value(),
+              card.color.currentData(), card.gradient_end.currentData(),
+              card.position.currentData())
+             for card in dialog.cards],
+            [
+                ("作業中", 50, 30, "amber", "rose", "bottom_left"),
+                ("休憩中", 300, 20, "mint", "white", "center"),
+            ],
+        )
+        self.controller.settings.sync()
+        persisted = FocusLoopApp(self.app)
+        self.assertEqual(persisted.timer_model.phases, expected)
+        persisted.close()
 
     def test_modern_ring_30fps_timer_stops_when_paused_simple_or_hidden(self):
         self.assertEqual(self.controller.ring_timer.interval(), 33)
@@ -430,11 +498,11 @@ class AppRegressionTests(unittest.TestCase):
         self.assertFalse(self.controller.timer_model.paused)
 
         self.controller.skip()
-        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩")
+        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
         self.assertTrue(self.controller.overlay.isVisible())
         self.assertEqual(self.controller.overlay.clock_text, "15:00")
         self.controller.skip()
-        self.assertEqual(self.controller.timer_model.current_phase.name, "作業")
+        self.assertEqual(self.controller.timer_model.current_phase.name, "作業中")
         self.assertFalse(self.controller.overlay.isVisible())
         self.assertEqual(self.controller.timer_model.loop_number, 2)
 

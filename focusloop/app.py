@@ -486,8 +486,8 @@ class SettingsDialog(QDialog):
         footer.addWidget(self.loop_label)
         footer.addWidget(loop_reset)
         footer.addWidget(timer_reset)
-        footer.addStretch()
         footer.addWidget(self.pause_button)
+        footer.addStretch()
         footer.addWidget(initialize)
         footer.addWidget(buttons)
 
@@ -624,12 +624,16 @@ class FocusLoopApp:
         self.settings = QSettings("FocusLoop", "FocusLoop")
         old_work = _int_setting(self.settings, "work_minutes", 45, 1, 240)
         old_break = _int_setting(self.settings, "break_minutes", 15, 1, 240)
-        legacy_font_size = _int_setting(
-            self.settings, "font_size", DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE
+        legacy_font_size = (
+            _int_setting(self.settings, "font_size", DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE)
+            if self.settings.contains("font_size") else None
         )
-        old_position = str(self.settings.value("position", "bottom_left"))
-        if old_position not in POSITION_VALUES:
-            old_position = "bottom_left"
+        old_position = (
+            str(self.settings.value("position"))
+            if self.settings.contains("position") else None
+        )
+        if old_position is not None and old_position not in POSITION_VALUES:
+            old_position = None
         old_style = str(self.settings.value("display_style", "modern"))
         phases = phases_from_json(
             self.settings.value("phases_json", None),

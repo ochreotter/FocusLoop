@@ -73,12 +73,20 @@ class PhaseConfig:
 def default_phases(
     work_minutes: int = 45,
     break_minutes: int = 15,
-    font_size: int = DEFAULT_FONT_SIZE,
+    font_size: int | None = None,
 ) -> tuple[PhaseConfig, ...]:
-    """Construct the default pair, optionally retaining old time settings."""
+    """Build the screenshot defaults, while honoring an explicit legacy font size."""
     return (
-        PhaseConfig("作業", work_minutes, "white", 100, font_size),
-        PhaseConfig("休憩", break_minutes, "mint", 100, font_size),
+        PhaseConfig(
+            "作業中", work_minutes, color="amber", opacity=30,
+            font_size=50 if font_size is None else font_size,
+            gradient_end="rose", position="bottom_left",
+        ),
+        PhaseConfig(
+            "休憩中", break_minutes, color="mint", opacity=20,
+            font_size=300 if font_size is None else font_size,
+            gradient_end="white", position="center",
+        ),
     )
 
 
@@ -92,13 +100,13 @@ def phases_from_json(
     *,
     legacy_work: int = 45,
     legacy_break: int = 15,
-    legacy_font_size: int = DEFAULT_FONT_SIZE,
-    legacy_position: str = "bottom_left",
+    legacy_font_size: int | None = None,
+    legacy_position: str | None = None,
     legacy_simple: bool = False,
 ) -> tuple[PhaseConfig, ...]:
     """Migrate old global style/position to each phase when not yet stored there."""
     fallback = tuple(
-        replace(p, simple=legacy_simple, position=legacy_position)
+        replace(p, simple=legacy_simple, position=p.position if legacy_position is None else legacy_position)
         for p in default_phases(legacy_work, legacy_break, legacy_font_size)
     )
     if not isinstance(value, str) or not value:
@@ -114,11 +122,11 @@ def phases_from_json(
                     minutes=row["minutes"],
                     color=row["color"],
                     opacity=row["opacity"],
-                    font_size=row.get("font_size", legacy_font_size),
+                    font_size=row.get("font_size", DEFAULT_FONT_SIZE if legacy_font_size is None else legacy_font_size),
                     gradient=row.get("gradient", True),
                     gradient_end=row.get("gradient_end", "violet"),
                     simple=row.get("simple", legacy_simple),
-                    position=row.get("position", legacy_position),
+                    position=row.get("position", "bottom_left" if legacy_position is None else legacy_position),
                     topmost=row.get("topmost", True),
                     hidden=row.get("hidden", False),
                 )

@@ -21,13 +21,13 @@ class IssueContractTests(unittest.TestCase):
     def test_05_default_cycle_and_monotonic_deadlines(self):
         timer = FocusTimer(now=0.0)
         self.assertEqual([(p.name, p.minutes) for p in timer.phases],
-                         [("作業", 45), ("休憩", 15)])
+                         [("作業中", 45), ("休憩中", 15)])
         self.assertEqual(timer.remaining_seconds(now=120.0), 2580)
         self.assertTrue(timer.tick(now=2700.0))
-        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.current_phase.name, "休憩中")
         self.assertEqual(timer.remaining_seconds(now=2700.0), 900)
         self.assertTrue(timer.tick(now=3600.0))
-        self.assertEqual(timer.current_phase.name, "作業")
+        self.assertEqual(timer.current_phase.name, "作業中")
         self.assertEqual(timer.loop_number, 2)
 
         timer.pause(now=3700.0)
@@ -36,7 +36,7 @@ class IssueContractTests(unittest.TestCase):
         timer.resume(now=9000.0)
         self.assertEqual(timer.remaining_seconds(now=9000.0), frozen)
         timer.skip(now=9001.0)
-        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.current_phase.name, "休憩中")
         timer.restart(now=9002.0)
         self.assertEqual(timer.remaining_seconds(now=9002.0), 900)
 
@@ -55,7 +55,7 @@ class IssueContractTests(unittest.TestCase):
 
         # A drag/reorder restarts even when the durations are the same.
         timer.configure(tuple(reversed(timer.phases)), now=100.0, force_restart=True)
-        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.current_phase.name, "休憩中")
         self.assertEqual(timer.remaining_seconds(now=100.0), 900)
         self.assertEqual(timer.phases[1].font_size, 300)
 
@@ -127,7 +127,7 @@ class IssueContractTests(unittest.TestCase):
         timer = FocusTimer(now=0.0)
         self.assertTrue(timer.tick(now=37 * 3600 + 2700))
         self.assertEqual(timer.loop_number, 38)
-        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.current_phase.name, "休憩中")
         before = timer.remaining_seconds(now=37 * 3600 + 2710)
         timer.reset_loop_count()
         self.assertEqual(timer.loop_number, 1)
