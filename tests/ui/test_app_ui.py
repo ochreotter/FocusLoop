@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QDialogButtonBox, QLabel, QPushButton, QSlider, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QDialogButtonBox, QLabel, QMessageBox, QPushButton, QSlider, QSystemTrayIcon
 
 from focusloop.app import FocusLoopApp, SettingsDialog
 from focusloop.overlay import remaining_arc_angles
@@ -193,8 +193,53 @@ class SettingsUITests(unittest.TestCase):
             self.assertEqual(button.text(), "削除")
         self.dialog._add_phase()
         self.assertIn("#C62828", self.dialog.table.cellWidget(2, 6).styleSheet())
-        self.dialog.table.cellWidget(2, 6).click()
+        with patch.object(
+            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
+        ) as confirm:
+            self.dialog.table.cellWidget(2, 6).click()
+            confirm.assert_called_once()
         self.assertEqual(self.dialog.table.rowCount(), 2)
+
+    def test_delete_requires_confirmation_and_cancel_keeps_timer_and_phases(self):
+        phases_before = self.dialog._snapshot()
+        button = self.dialog.table.cellWidget(0, 6)
+        with patch.object(
+            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Cancel
+        ) as popup:
+            button.click()
+            popup.assert_called_once()
+        self.assertEqual(self.dialog._snapshot(), phases_before)
+        self.assertEqual(self.dialog.table.rowCount(), 2)
+        self.assertEqual(self.updates, [])
+
+        with patch.object(
+            QMessageBox, "exec", return_value=QMessageBox.StandardButton.NoButton
+        ):
+            button.click()
+        self.assertEqual(self.dialog._snapshot(), phases_before)
+        self.assertEqual(self.updates, [])
+
+        with patch.object(
+            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
+        ):
+            button.click()
+        self.assertEqual(self.dialog.table.rowCount(), 1)
+        self.assertEqual(self.dialog.result_phases[0].name, "休憩")
+        self.assertEqual(self.updates, [True])
+
+    def test_delete_confirmation_after_reorder_targets_correct_phase(self):
+        header = self.dialog.table.verticalHeader()
+        header.moveSection(0, 1)
+        self.assertEqual(self.dialog._snapshot()[0]["name"], "休憩")
+        name = self.dialog.table.cellWidget(0, 0)
+        self.assertEqual(name.text(), "作業")
+        button = self.dialog.table.cellWidget(0, 6)
+        with patch.object(
+            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
+        ):
+            button.click()
+        self.assertEqual(self.dialog.table.rowCount(), 1)
+        self.assertEqual(self.dialog.result_phases[0].name, "休憩")
 
     def test_close_keeps_changes(self):
         self.dialog.table.cellWidget(0, 4).findChild(QSlider).setValue(100)
