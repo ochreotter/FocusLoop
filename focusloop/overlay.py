@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRectF, Qt
 from PySide6.QtGui import (
-    QColor, QFont, QFontMetrics, QGuiApplication, QLinearGradient, QPainter, QPen,
+    QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QLinearGradient, QPainter, QPen,
 )
 from PySide6.QtWidgets import QWidget
 
@@ -163,7 +163,7 @@ class Overlay(QWidget):
                 brush.setColorAt(1.0, QColor(COLOR_HEX[self.phase_config.gradient_end]))
             else:
                 brush = QColor(COLOR_HEX[self.phase_config.color])
-            progress_pen = QPen(brush, ring_width)
+            progress_pen = QPen(QBrush(brush), ring_width)
             progress_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(progress_pen)
             painter.drawArc(arc, 90 * 16, -round(360 * 16 * self.remaining_ratio))
