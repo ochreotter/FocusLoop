@@ -173,7 +173,8 @@ class SettingsDialog(QDialog):
             "上から順に自動で繰り返します。"
             "フェーズの順番・名前・分数を変更すると、先頭から再スタートします。"
             "色・透過率・位置・文字サイズのみの変更では時間をリセットしません。"
-            "「適用」を押すと画面を閉じずに変更を反映します。",
+            "「適用」を押すと画面を閉じずに変更を反映します。"
+            "適用済みの変更は「キャンセル」後も保持されます。",
             self,
         )
         note.setWordWrap(True)
@@ -184,9 +185,9 @@ class SettingsDialog(QDialog):
             | QDialogButtonBox.StandardButton.Apply,
             parent=self,
         )
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
-            self.apply_changes
-        )
+        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        apply_button.setText("適用")
+        apply_button.clicked.connect(self.apply_changes)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
