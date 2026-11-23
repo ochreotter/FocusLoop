@@ -656,6 +656,11 @@ class FocusLoopApp:
         self.qt_timer = QTimer(qt_app)
         self.qt_timer.setInterval(200)
         self.qt_timer.timeout.connect(self.update)
+        # A separate light-weight timer animates only the Modern ring.
+        self.ring_timer = QTimer(qt_app)
+        self.ring_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.ring_timer.setInterval(33)  # <= 30fps; actual repaints are angle-gated.
+        self.ring_timer.timeout.connect(self._animate_ring)
 
     def start(self) -> bool:
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -676,7 +681,7 @@ class FocusLoopApp:
         display = f"{remaining // 60:02d}:{remaining % 60:02d}"
         phase = self.timer_model.current_phase
         self.overlay.set_clock(
-            display, phase, remaining / (phase.minutes * 60), self.timer_model.loop_number
+            display, phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
         )
         if self.timer_model.loop_number != self._last_loop_saved:
             self._save_loop_number()
@@ -691,6 +696,30 @@ class FocusLoopApp:
             self.last_display = state
         if switched:
             self._notify_phase_change()
+        self._sync_ring_animation()
+
+    def _sync_ring_animation(self) -> None:
+        """Animate only while Modern is visible and counting down."""
+        active = (
+            self.overlay.isVisible()
+            and not self.timer_model.paused
+            and not self.timer_model.current_phase.simple
+        )
+        if active and not self.ring_timer.isActive():
+            self.ring_timer.start()
+        elif not active and self.ring_timer.isActive():
+            self.ring_timer.stop()
+
+    def _animate_ring(self) -> None:
+        """Advance visual progress from the monotonic deadline, not frame counts."""
+        if (
+            self.timer_model.paused
+            or self.timer_model.current_phase.simple
+            or not self.overlay.isVisible()
+        ):
+            self.ring_timer.stop()
+            return
+        self.overlay.set_ring_progress(self.timer_model.remaining_ratio())
 
     def _save_loop_number(self) -> None:
         number = self.timer_model.loop_number
@@ -805,6 +834,7 @@ class FocusLoopApp:
         self.update()
 
     def close(self) -> None:
+        self.ring_timer.stop()
         self.qt_timer.stop()
         if self.settings_dialog is not None:
             self.settings_dialog.close()
