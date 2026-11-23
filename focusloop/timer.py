@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import math
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Sequence
 
 # (identifier, user-facing name, hexadecimal text color)
@@ -28,6 +28,7 @@ MAX_MINUTES = 240
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 200
 DEFAULT_FONT_SIZE = 42
+POSITION_VALUES = ("bottom_left", "bottom_right", "top_left", "top_right", "center")
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,8 @@ class PhaseConfig:
     font_size: int = DEFAULT_FONT_SIZE
     gradient: bool = True
     gradient_end: str = "violet"
+    simple: bool = False
+    position: str = "bottom_left"
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not 1 <= len(self.name.strip()) <= 40:
@@ -55,6 +58,10 @@ class PhaseConfig:
             raise ValueError("gradient must be a boolean")
         if self.gradient_end not in COLOR_HEX:
             raise ValueError("unknown gradient end color")
+        if type(self.simple) is not bool:
+            raise ValueError("simple must be a boolean")
+        if self.position not in POSITION_VALUES:
+            raise ValueError("unknown phase position")
 
 
 def default_phases(
@@ -80,9 +87,14 @@ def phases_from_json(
     legacy_work: int = 45,
     legacy_break: int = 15,
     legacy_font_size: int = DEFAULT_FONT_SIZE,
+    legacy_position: str = "bottom_left",
+    legacy_simple: bool = False,
 ) -> tuple[PhaseConfig, ...]:
-    """Read new settings; fall back to the old pair if empty or invalid."""
-    fallback = default_phases(legacy_work, legacy_break, legacy_font_size)
+    """Migrate old global style/position to each phase when not yet stored there."""
+    fallback = tuple(
+        replace(p, simple=legacy_simple, position=legacy_position)
+        for p in default_phases(legacy_work, legacy_break, legacy_font_size)
+    )
     if not isinstance(value, str) or not value:
         return fallback
     try:
@@ -99,6 +111,8 @@ def phases_from_json(
                     font_size=row.get("font_size", legacy_font_size),
                     gradient=row.get("gradient", True),
                     gradient_end=row.get("gradient_end", "violet"),
+                    simple=row.get("simple", legacy_simple),
+                    position=row.get("position", legacy_position),
                 )
                 for row in rows
             ]
