@@ -26,7 +26,7 @@ COLOR_HEX = {key: hex_value for key, _, hex_value in COLOR_PRESETS}
 MIN_MINUTES = 1
 MAX_MINUTES = 240
 MIN_FONT_SIZE = 8
-MAX_FONT_SIZE = 200
+MAX_FONT_SIZE = 300
 DEFAULT_FONT_SIZE = 42
 POSITION_VALUES = ("bottom_left", "bottom_right", "top_left", "top_right", "center")
 
