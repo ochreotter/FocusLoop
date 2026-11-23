@@ -168,6 +168,61 @@ class TimerTests(unittest.TestCase):
         for size in (8, 200):
             self.assertEqual(PhaseConfig("作業", 45, font_size=size).font_size, size)
 
+    def test_loop_count_increments_on_wrap_and_skipping(self):
+        timer = FocusTimer(now=0.0)
+        self.assertEqual(timer.loop_number, 1)
+        timer.tick(now=2700)
+        self.assertEqual(timer.loop_number, 1)
+        timer.tick(now=3600)
+        self.assertEqual(timer.loop_number, 2)
+        timer.skip(now=3601)
+        self.assertEqual(timer.loop_number, 2)
+        timer.skip(now=3602)
+        self.assertEqual(timer.loop_number, 3)
+
+    def test_loop_count_catches_up_after_large_sleep(self):
+        timer = FocusTimer(now=0.0)
+        timer.tick(now=3600 * 5 + 2701)
+        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.loop_number, 6)
+
+    def test_reset_loop_count_does_not_restart_running_timer(self):
+        timer = FocusTimer(initial_loop=12, now=0.0)
+        deadline = timer._deadline
+        timer.reset_loop_count()
+        self.assertEqual(timer.loop_number, 1)
+        self.assertEqual(timer._deadline, deadline)
+        self.assertEqual(timer.remaining_seconds(now=30), 2670)
+        timer.skip(now=35)
+        self.assertEqual(timer.loop_number, 1)
+
+    def test_gradient_settings_roundtrip_and_old_fallback(self):
+        gradient_phase = PhaseConfig(
+            "作業", 45, "sky", 55, 100, True, "violet"
+        )
+        solid_phase = PhaseConfig(
+            "休憩", 15, "mint", 85, 48, False, "amber"
+        )
+        self.assertEqual(
+            phases_from_json(phases_to_json((gradient_phase, solid_phase))),
+            (gradient_phase, solid_phase),
+        )
+        old = json.dumps([
+            {"name": "作業", "minutes": 45, "color": "white",
+             "opacity": 100, "font_size": 42}
+        ])
+        migrated = phases_from_json(old)
+        self.assertTrue(migrated[0].gradient)
+        self.assertEqual(migrated[0].gradient_end, "violet")
+
+    def test_invalid_gradient_settings(self):
+        for kwargs in ({"gradient": "true"}, {"gradient_end": "invalid"}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                PhaseConfig("作業", 45, **kwargs)
+        for initial in (0, -1, True):
+            with self.subTest(initial=initial), self.assertRaises(ValueError):
+                FocusTimer(initial_loop=initial, now=0)
+
     def test_invalid_settings(self):
         for duration in (0, 241, -1, 1.5, True):
             with self.subTest(duration=duration):
