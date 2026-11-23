@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QGuiApplication, QIcon, QPainter
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -28,9 +29,13 @@ from PySide6.QtWidgets import (
 
 from .geometry import tray_menu_position
 from .icons import clock_icon
+from .overlay import DISPLAY_STYLES, Overlay
 from .timer import (
     COLOR_HEX,
     COLOR_PRESETS,
+    DEFAULT_FONT_SIZE,
+    MAX_FONT_SIZE,
+    MIN_FONT_SIZE,
     FocusTimer,
     PhaseConfig,
     phases_from_json,
@@ -53,105 +58,46 @@ def _int_setting(settings: QSettings, key: str, default: int, minimum: int, maxi
     return min(max(value, minimum), maximum)
 
 
-class Overlay(QWidget):
-    """Only the countdown digits are painted; mouse input passes through."""
-
-    def __init__(self, font_size: int, position: str, phase: PhaseConfig) -> None:
-        super().__init__()
-        flags = (
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowTransparentForInput
-            | Qt.WindowType.WindowDoesNotAcceptFocus
-        )
-        self.setWindowFlags(flags)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.clock_text = f"{phase.minutes:02d}:00"
-        self.phase_config = phase
-        self.font_size = font_size
-        self.position_name = position
-        self._resize_and_reposition()
-
-    def _resize_and_reposition(self) -> None:
-        font = QFont("Consolas", self.font_size)
-        font.setBold(True)
-        metrics = QFontMetrics(font)
-        self.setFixedSize(metrics.horizontalAdvance("000:00") + 30, metrics.height() + 26)
-        self.reposition()
-        self.update()
-
-    def reposition(self) -> None:
-        screen = QGuiApplication.primaryScreen()
-        if screen is None:
-            return
-        rect = screen.availableGeometry()
-        margin = 24
-        is_right = self.position_name.endswith("right")
-        is_bottom = self.position_name.startswith("bottom")
-        x = rect.right() - self.width() - margin if is_right else rect.left() + margin
-        y = rect.bottom() - self.height() - margin if is_bottom else rect.top() + margin
-        self.move(QPoint(x, y))
-
-    def set_clock(self, text: str, phase: PhaseConfig) -> None:
-        if (text, phase) != (self.clock_text, self.phase_config):
-            self.clock_text = text
-            self.phase_config = phase
-            self.update()
-
-    def apply_appearance(self, font_size: int, position: str) -> None:
-        self.font_size = font_size
-        self.position_name = position
-        self._resize_and_reposition()
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        font = QFont("Consolas", self.font_size)
-        font.setBold(True)
-        painter.setFont(font)
-        alpha = round(self.phase_config.opacity * 255 / 100)
-        shadow = QColor(0, 0, 0, round(alpha * 0.65))
-        painter.setPen(shadow)
-        painter.drawText(self.rect().translated(2, 2), Qt.AlignmentFlag.AlignCenter, self.clock_text)
-        foreground = QColor(COLOR_HEX[self.phase_config.color])
-        foreground.setAlpha(alpha)
-        painter.setPen(foreground)
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.clock_text)
-
-
 class SettingsDialog(QDialog):
     """Edit all phases, including order, text color and per-phase opacity."""
 
     changed = Signal(object, bool)
+    loop_reset = Signal()
 
-    def __init__(self, parent, timer: FocusTimer, font_size: int, position: str) -> None:
+    def __init__(self, parent, timer: FocusTimer, position: str, style: str) -> None:
         super().__init__(parent)
         self.setWindowTitle("FocusLoop - 設定")
-        self.setMinimumWidth(760)
+        self.setMinimumWidth(1040)
         self.setMinimumHeight(450)
         self.result_phases: tuple[PhaseConfig, ...] | None = None
-        self._last_emitted_appearance = (font_size, position)
-
-        self.font_spin = QSpinBox(self)
-        self.font_spin.setRange(18, 96)
-        self.font_spin.setSuffix(" pt")
-        self.font_spin.setValue(font_size)
+        self._last_emitted_appearance = (position, style)
 
         self.position_combo = QComboBox(self)
         for label, value in POSITIONS:
             self.position_combo.addItem(label, value)
         self.position_combo.setCurrentIndex(max(0, self.position_combo.findData(position)))
 
-        form = QFormLayout()
-        form.addRow("文字サイズ", self.font_spin)
-        form.addRow("表示位置", self.position_combo)
+        self.style_combo = QComboBox(self)
+        for label, value in DISPLAY_STYLES:
+            self.style_combo.addItem(label, value)
+        self.style_combo.setCurrentIndex(max(0, self.style_combo.findData(style)))
 
-        self.table = QTableWidget(0, 5, self)
-        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "透過率", "削除"))
+        self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
+        reset_loop_button = QPushButton("ループ数をリセット", self)
+        reset_loop_button.clicked.connect(self._reset_loop)
+
+        loop_row = QHBoxLayout()
+        loop_row.addWidget(self.loop_label)
+        loop_row.addWidget(reset_loop_button)
+        loop_row.addStretch()
+
+        form = QFormLayout()
+        form.addRow("表示位置", self.position_combo)
+        form.addRow("表示スタイル", self.style_combo)
+        form.addRow("ループ数", loop_row)
+
+        self.table = QTableWidget(0, 8, self)
+        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "文字サイズ", "透過率", "グラデーション", "終了色", "削除"))
         handle = self.table.verticalHeader()
         handle.show()
         handle.setFixedWidth(44)
@@ -162,19 +108,25 @@ class SettingsDialog(QDialog):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         self._render_rows([
             {
                 "name": phase.name,
                 "minutes": phase.minutes,
                 "color": phase.color,
+                "font_size": phase.font_size,
                 "opacity": phase.opacity,
+                "gradient": phase.gradient,
+                "gradient_end": phase.gradient_end,
             }
             for phase in timer.phases
         ])
-        self.font_spin.valueChanged.connect(lambda _value: self._notify_change())
         self.position_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
+        self.style_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
 
         add_button = QPushButton("＋ フェーズを追加", self)
         add_button.clicked.connect(self._add_phase)
@@ -183,7 +135,7 @@ class SettingsDialog(QDialog):
             "設定は変更と同時に反映・保存されます。"
             "左端の「⠿」をドラッグして順番を変更できます。"
             "フェーズの順番・分数を変更すると、先頭から再スタートします。"
-            "名前・色・透過率・位置・文字サイズの変更では時間をリセットしません。"
+            "名前・色・透過率・表示スタイル・グラデーション・位置・文字サイズの変更では時間をリセットしません。"
             "「閉じる」を押しても設定は保持されます。",
             self,
         )
@@ -236,6 +188,12 @@ class SettingsDialog(QDialog):
         color.setCurrentIndex(max(0, color.findData(phase["color"])))
         self.table.setCellWidget(row, 2, color)
 
+        font_size = QSpinBox(self.table)
+        font_size.setRange(MIN_FONT_SIZE, MAX_FONT_SIZE)
+        font_size.setSuffix(" pt")
+        font_size.setValue(int(phase["font_size"]))
+        self.table.setCellWidget(row, 3, font_size)
+
         opacity_cell = QWidget(self.table)
         opacity_layout = QHBoxLayout(opacity_cell)
         opacity_layout.setContentsMargins(4, 0, 4, 0)
@@ -248,19 +206,44 @@ class SettingsDialog(QDialog):
         opacity.valueChanged.connect(lambda value, label=opacity_label: label.setText(f"{value}%"))
         opacity_layout.addWidget(opacity)
         opacity_layout.addWidget(opacity_label)
-        self.table.setCellWidget(row, 3, opacity_cell)
+        self.table.setCellWidget(row, 4, opacity_cell)
+
+        gradient = QCheckBox("ON", self.table)
+        gradient.setChecked(bool(phase["gradient"]))
+        self.table.setCellWidget(row, 5, gradient)
+
+        gradient_end = QComboBox(self.table)
+        for key, label, hex_value in COLOR_PRESETS:
+            gradient_end.addItem(label, key)
+            gradient_end.setItemData(
+                gradient_end.count() - 1, QColor(hex_value),
+                Qt.ItemDataRole.DecorationRole,
+            )
+        gradient_end.setCurrentIndex(max(0, gradient_end.findData(phase["gradient_end"])))
+        gradient_end.setEnabled(gradient.isChecked())
+        self.table.setCellWidget(row, 6, gradient_end)
+        gradient.toggled.connect(gradient_end.setEnabled)
 
         delete = QPushButton("削除", self.table)
         delete.setToolTip("削除（最低1フェーズは必要）")
         delete.clicked.connect(lambda checked=False, editor=name: self._delete_row(editor))
-        self.table.setCellWidget(row, 4, delete)
+        self.table.setCellWidget(row, 7, delete)
 
         name.textChanged.connect(lambda _text: self._notify_change())
         minutes.valueChanged.connect(lambda _value: self._notify_change())
         color.currentIndexChanged.connect(lambda _index: self._notify_change())
+        font_size.valueChanged.connect(lambda _value: self._notify_change())
+        gradient.toggled.connect(lambda _value: self._notify_change())
+        gradient_end.currentIndexChanged.connect(lambda _value: self._notify_change())
         opacity.valueChanged.connect(
             lambda value, label=opacity_label: self._opacity_changed(label, value)
         )
+
+    def _reset_loop(self) -> None:
+        self.loop_reset.emit()
+
+    def set_loop_number(self, number: int) -> None:
+        self.loop_label.setText(f"LOOP {number:02d}")
 
     def _opacity_changed(self, label: QLabel, value: int) -> None:
         label.setText(f"{value}%")
@@ -276,6 +259,9 @@ class SettingsDialog(QDialog):
                     minutes=row["minutes"],
                     color=row["color"],
                     opacity=row["opacity"],
+                    font_size=row["font_size"],
+                    gradient=row["gradient"],
+                    gradient_end=row["gradient_end"],
                 )
                 for row in self._snapshot()
             )
@@ -284,7 +270,7 @@ class SettingsDialog(QDialog):
             # the input is valid, without interrupting the user with a dialog.
             return
 
-        appearance = (self.font_spin.value(), self.position_combo.currentData())
+        appearance = (self.position_combo.currentData(), self.style_combo.currentData())
         if (
             force_restart
             or phases != self.result_phases
@@ -300,12 +286,15 @@ class SettingsDialog(QDialog):
         header = self.table.verticalHeader()
         for visual in range(self.table.rowCount()):
             index = header.logicalIndex(visual)
-            opacity_cell = self.table.cellWidget(index, 3)
+            opacity_cell = self.table.cellWidget(index, 4)
             rows.append({
                 "name": self.table.cellWidget(index, 0).text(),
                 "minutes": self.table.cellWidget(index, 1).value(),
                 "color": self.table.cellWidget(index, 2).currentData(),
+                "font_size": self.table.cellWidget(index, 3).value(),
                 "opacity": opacity_cell.findChild(QSlider).value(),
+                "gradient": self.table.cellWidget(index, 5).isChecked(),
+                "gradient_end": self.table.cellWidget(index, 6).currentData(),
             })
         return rows
 
@@ -333,7 +322,7 @@ class SettingsDialog(QDialog):
 
     def _add_phase(self) -> None:
         rows = self._snapshot()
-        rows.append({"name": "新しいフェーズ", "minutes": 5, "color": "sky", "opacity": 100})
+        rows.append({"name": "新しいフェーズ", "minutes": 5, "color": "sky", "font_size": DEFAULT_FONT_SIZE, "opacity": 100, "gradient": True, "gradient_end": "violet"})
         self._render_rows(rows)
         self.table.scrollToBottom()
         self._notify_change(force_restart=True)
@@ -346,18 +335,26 @@ class FocusLoopApp:
         self.settings = QSettings("FocusLoop", "FocusLoop")
         old_work = _int_setting(self.settings, "work_minutes", 45, 1, 240)
         old_break = _int_setting(self.settings, "break_minutes", 15, 1, 240)
+        legacy_font_size = _int_setting(
+            self.settings, "font_size", DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE
+        )
         phases = phases_from_json(
             self.settings.value("phases_json", None),
             legacy_work=old_work,
             legacy_break=old_break,
+            legacy_font_size=legacy_font_size,
         )
-        self.font_size = _int_setting(self.settings, "font_size", 42, 18, 96)
         self.position = str(self.settings.value("position", "bottom_left"))
         if self.position not in {value for _, value in POSITIONS}:
             self.position = "bottom_left"
+        self.display_style = str(self.settings.value("display_style", "modern"))
+        if self.display_style not in {value for _, value in DISPLAY_STYLES}:
+            self.display_style = "modern"
+        loop_number = _int_setting(self.settings, "loop_number", 1, 1, 2_147_483_647)
 
-        self.timer_model = FocusTimer(phases)
-        self.overlay = Overlay(self.font_size, self.position, self.timer_model.current_phase)
+        self.timer_model = FocusTimer(phases, initial_loop=loop_number)
+        self._last_loop_saved = loop_number
+        self.overlay = Overlay(self.position, self.timer_model.current_phase, self.display_style)
         self.tray = QSystemTrayIcon(self._tray_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
         self.menu = QMenu()
@@ -409,9 +406,13 @@ class FocusLoopApp:
         remaining = self.timer_model.remaining_seconds()
         display = f"{remaining // 60:02d}:{remaining % 60:02d}"
         phase = self.timer_model.current_phase
+        self.overlay.set_clock(
+            display, phase, remaining / (phase.minutes * 60), self.timer_model.loop_number
+        )
+        if self.timer_model.loop_number != self._last_loop_saved:
+            self._save_loop_number()
         state = (display, phase, self.timer_model.paused)
         if state != self.last_display:
-            self.overlay.set_clock(display, phase)
             title = phase.name
             if self.timer_model.paused:
                 title += " (一時停止)"
@@ -421,6 +422,20 @@ class FocusLoopApp:
             self.last_display = state
         if switched:
             self._notify_phase_change()
+
+    def _save_loop_number(self) -> None:
+        number = self.timer_model.loop_number
+        self.settings.setValue("loop_number", number)
+        self.settings.sync()
+        self._last_loop_saved = number
+        if self.settings_dialog is not None:
+            self.settings_dialog.set_loop_number(number)
+
+    def _reset_loop_count(self) -> None:
+        """Reset the visible loop number while preserving the countdown."""
+        self.timer_model.reset_loop_count()
+        self._save_loop_number()
+        self.update()
 
     def _notify_phase_change(self) -> None:
         """Send a Windows system-tray notification at each phase transition."""
@@ -479,9 +494,10 @@ class FocusLoopApp:
             self.settings_dialog.activateWindow()
             return
 
-        dialog = SettingsDialog(None, self.timer_model, self.font_size, self.position)
+        dialog = SettingsDialog(None, self.timer_model, self.position, self.display_style)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.changed.connect(self._apply_settings)
+        dialog.loop_reset.connect(self._reset_loop_count)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
         dialog.show()
@@ -496,15 +512,16 @@ class FocusLoopApp:
         if dialog.result_phases is None:
             return
         self.timer_model.configure(dialog.result_phases, force_restart=force_restart)
-        font_size = dialog.font_spin.value()
         position = str(dialog.position_combo.currentData())
-        if (font_size, position) != (self.font_size, self.position):
-            self.font_size, self.position = font_size, position
-            self.overlay.apply_appearance(self.font_size, self.position)
+        style = str(dialog.style_combo.currentData())
+        if (position, style) != (self.position, self.display_style):
+            self.position = position
+            self.display_style = style
+            self.overlay.apply_appearance(position, style)
 
         self.settings.setValue("phases_json", phases_to_json(self.timer_model.phases))
-        self.settings.setValue("font_size", self.font_size)
         self.settings.setValue("position", self.position)
+        self.settings.setValue("display_style", self.display_style)
         self.settings.sync()
         self.update()
 

@@ -24,6 +24,9 @@ COLOR_PRESETS = (
 COLOR_HEX = {key: hex_value for key, _, hex_value in COLOR_PRESETS}
 MIN_MINUTES = 1
 MAX_MINUTES = 240
+MIN_FONT_SIZE = 8
+MAX_FONT_SIZE = 200
+DEFAULT_FONT_SIZE = 42
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,9 @@ class PhaseConfig:
     minutes: int
     color: str = "white"
     opacity: int = 100
+    font_size: int = DEFAULT_FONT_SIZE
+    gradient: bool = True
+    gradient_end: str = "violet"
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not 1 <= len(self.name.strip()) <= 40:
@@ -42,13 +48,23 @@ class PhaseConfig:
             raise ValueError("unknown phase color")
         if type(self.opacity) is not int or not 0 <= self.opacity <= 100:
             raise ValueError("opacity must be between 0 and 100")
+        if type(self.font_size) is not int or not MIN_FONT_SIZE <= self.font_size <= MAX_FONT_SIZE:
+            raise ValueError(f"font_size must be between {MIN_FONT_SIZE} and {MAX_FONT_SIZE}")
+        if type(self.gradient) is not bool:
+            raise ValueError("gradient must be a boolean")
+        if self.gradient_end not in COLOR_HEX:
+            raise ValueError("unknown gradient end color")
 
 
-def default_phases(work_minutes: int = 45, break_minutes: int = 15) -> tuple[PhaseConfig, ...]:
+def default_phases(
+    work_minutes: int = 45,
+    break_minutes: int = 15,
+    font_size: int = DEFAULT_FONT_SIZE,
+) -> tuple[PhaseConfig, ...]:
     """Construct the default pair, optionally retaining old time settings."""
     return (
-        PhaseConfig("作業", work_minutes, "white", 100),
-        PhaseConfig("休憩", break_minutes, "mint", 100),
+        PhaseConfig("作業", work_minutes, "white", 100, font_size),
+        PhaseConfig("休憩", break_minutes, "mint", 100, font_size),
     )
 
 
@@ -62,9 +78,10 @@ def phases_from_json(
     *,
     legacy_work: int = 45,
     legacy_break: int = 15,
+    legacy_font_size: int = DEFAULT_FONT_SIZE,
 ) -> tuple[PhaseConfig, ...]:
     """Read new settings; fall back to the old pair if empty or invalid."""
-    fallback = default_phases(legacy_work, legacy_break)
+    fallback = default_phases(legacy_work, legacy_break, legacy_font_size)
     if not isinstance(value, str) or not value:
         return fallback
     try:
@@ -78,6 +95,9 @@ def phases_from_json(
                     minutes=row["minutes"],
                     color=row["color"],
                     opacity=row["opacity"],
+                    font_size=row.get("font_size", legacy_font_size),
+                    gradient=row.get("gradient", True),
+                    gradient_end=row.get("gradient_end", "violet"),
                 )
                 for row in rows
             ]
@@ -101,7 +121,11 @@ class FocusTimer:
         phases: Sequence[PhaseConfig] | None = None,
         *,
         now: float | None = None,
+        initial_loop: int = 1,
     ) -> None:
+        if type(initial_loop) is not int or initial_loop < 1:
+            raise ValueError("initial_loop must be a positive integer")
+        self.loop_number = initial_loop
         self.phases = validate_phases(phases if phases is not None else default_phases())
         self.phase_index = 0
         self.paused = False
@@ -129,9 +153,12 @@ class FocusTimer:
         complete_cycles = math.floor((current - self._deadline) / cycle_seconds)
         if complete_cycles > 0:
             self._deadline += complete_cycles * cycle_seconds
+            self.loop_number += complete_cycles
 
         while current >= self._deadline:
             self.phase_index = (self.phase_index + 1) % len(self.phases)
+            if self.phase_index == 0:
+                self.loop_number += 1
             self._deadline += self.current_phase.minutes * 60
         return True
 
@@ -162,7 +189,13 @@ class FocusTimer:
 
     def skip(self, *, now: float | None = None) -> None:
         self.phase_index = (self.phase_index + 1) % len(self.phases)
+        if self.phase_index == 0:
+            self.loop_number += 1
         self.restart(now=now)
+
+    def reset_loop_count(self) -> None:
+        """Reset the loop counter without changing the active phase or deadline."""
+        self.loop_number = 1
 
     def restart(self, *, now: float | None = None) -> None:
         self._remaining = float(self.current_phase.minutes * 60)
@@ -175,7 +208,7 @@ class FocusTimer:
         now: float | None = None,
         force_restart: bool = False,
     ) -> None:
-        """Keep time when only display properties or names change.
+        """Keep time when only display properties (including font size) or names change.
 
         A duration/count change or explicit reorder restarts the cycle.
         """
