@@ -261,6 +261,12 @@ class SettingsDialog(QDialog):
         color.setCurrentIndex(max(0, color.findData(phase["color"])))
         self.table.setCellWidget(row, 2, color)
 
+        font_size = QSpinBox(self.table)
+        font_size.setRange(MIN_FONT_SIZE, MAX_FONT_SIZE)
+        font_size.setSuffix(" pt")
+        font_size.setValue(int(phase["font_size"]))
+        self.table.setCellWidget(row, 3, font_size)
+
         opacity_cell = QWidget(self.table)
         opacity_layout = QHBoxLayout(opacity_cell)
         opacity_layout.setContentsMargins(4, 0, 4, 0)
@@ -273,16 +279,17 @@ class SettingsDialog(QDialog):
         opacity.valueChanged.connect(lambda value, label=opacity_label: label.setText(f"{value}%"))
         opacity_layout.addWidget(opacity)
         opacity_layout.addWidget(opacity_label)
-        self.table.setCellWidget(row, 3, opacity_cell)
+        self.table.setCellWidget(row, 4, opacity_cell)
 
         delete = QPushButton("削除", self.table)
         delete.setToolTip("削除（最低1フェーズは必要）")
         delete.clicked.connect(lambda checked=False, editor=name: self._delete_row(editor))
-        self.table.setCellWidget(row, 4, delete)
+        self.table.setCellWidget(row, 5, delete)
 
         name.textChanged.connect(lambda _text: self._notify_change())
         minutes.valueChanged.connect(lambda _value: self._notify_change())
         color.currentIndexChanged.connect(lambda _index: self._notify_change())
+        font_size.valueChanged.connect(lambda _value: self._notify_change())
         opacity.valueChanged.connect(
             lambda value, label=opacity_label: self._opacity_changed(label, value)
         )
@@ -301,6 +308,7 @@ class SettingsDialog(QDialog):
                     minutes=row["minutes"],
                     color=row["color"],
                     opacity=row["opacity"],
+                    font_size=row["font_size"],
                 )
                 for row in self._snapshot()
             )
@@ -309,14 +317,14 @@ class SettingsDialog(QDialog):
             # the input is valid, without interrupting the user with a dialog.
             return
 
-        appearance = (self.font_spin.value(), self.position_combo.currentData())
+        position = self.position_combo.currentData()
         if (
             force_restart
             or phases != self.result_phases
-            or appearance != self._last_emitted_appearance
+            or position != self._last_emitted_position
         ):
             self.result_phases = phases
-            self._last_emitted_appearance = appearance
+            self._last_emitted_position = position
             self.changed.emit(self, force_restart)
 
     def _snapshot(self) -> list[dict]:
@@ -325,11 +333,12 @@ class SettingsDialog(QDialog):
         header = self.table.verticalHeader()
         for visual in range(self.table.rowCount()):
             index = header.logicalIndex(visual)
-            opacity_cell = self.table.cellWidget(index, 3)
+            opacity_cell = self.table.cellWidget(index, 4)
             rows.append({
                 "name": self.table.cellWidget(index, 0).text(),
                 "minutes": self.table.cellWidget(index, 1).value(),
                 "color": self.table.cellWidget(index, 2).currentData(),
+                "font_size": self.table.cellWidget(index, 3).value(),
                 "opacity": opacity_cell.findChild(QSlider).value(),
             })
         return rows
@@ -358,7 +367,7 @@ class SettingsDialog(QDialog):
 
     def _add_phase(self) -> None:
         rows = self._snapshot()
-        rows.append({"name": "新しいフェーズ", "minutes": 5, "color": "sky", "opacity": 100})
+        rows.append({"name": "新しいフェーズ", "minutes": 5, "color": "sky", "font_size": DEFAULT_FONT_SIZE, "opacity": 100})
         self._render_rows(rows)
         self.table.scrollToBottom()
         self._notify_change(force_restart=True)
@@ -371,18 +380,21 @@ class FocusLoopApp:
         self.settings = QSettings("FocusLoop", "FocusLoop")
         old_work = _int_setting(self.settings, "work_minutes", 45, 1, 240)
         old_break = _int_setting(self.settings, "break_minutes", 15, 1, 240)
+        legacy_font_size = _int_setting(
+            self.settings, "font_size", DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE
+        )
         phases = phases_from_json(
             self.settings.value("phases_json", None),
             legacy_work=old_work,
             legacy_break=old_break,
+            legacy_font_size=legacy_font_size,
         )
-        self.font_size = _int_setting(self.settings, "font_size", 42, 18, 96)
         self.position = str(self.settings.value("position", "bottom_left"))
         if self.position not in {value for _, value in POSITIONS}:
             self.position = "bottom_left"
 
         self.timer_model = FocusTimer(phases)
-        self.overlay = Overlay(self.font_size, self.position, self.timer_model.current_phase)
+        self.overlay = Overlay(self.position, self.timer_model.current_phase)
         self.tray = QSystemTrayIcon(self._tray_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
         self.menu = QMenu()
@@ -504,7 +516,7 @@ class FocusLoopApp:
             self.settings_dialog.activateWindow()
             return
 
-        dialog = SettingsDialog(None, self.timer_model, self.font_size, self.position)
+        dialog = SettingsDialog(None, self.timer_model, self.position)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.changed.connect(self._apply_settings)
         dialog.finished.connect(self._settings_closed)
@@ -521,14 +533,12 @@ class FocusLoopApp:
         if dialog.result_phases is None:
             return
         self.timer_model.configure(dialog.result_phases, force_restart=force_restart)
-        font_size = dialog.font_spin.value()
         position = str(dialog.position_combo.currentData())
-        if (font_size, position) != (self.font_size, self.position):
-            self.font_size, self.position = font_size, position
-            self.overlay.apply_appearance(self.font_size, self.position)
+        if position != self.position:
+            self.position = position
+            self.overlay.apply_appearance(self.position)
 
         self.settings.setValue("phases_json", phases_to_json(self.timer_model.phases))
-        self.settings.setValue("font_size", self.font_size)
         self.settings.setValue("position", self.position)
         self.settings.sync()
         self.update()
