@@ -76,8 +76,8 @@ class IssueIntegrationTests(unittest.TestCase):
         first.topmost.setChecked(False)
         dialog._reorder_cards(first, second)
         self.assertEqual([p.name for p in self.controller.timer_model.phases],
-                         ["休憩", "集中"])
-        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩")
+                         ["休憩中", "集中"])
+        self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
         self.assertEqual(self.controller.timer_model.phases[1].position, "center")
 
         with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Cancel):
