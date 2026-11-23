@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from PySide6.QtCore import QPoint, QSize, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -74,6 +76,16 @@ def color_swatch_icon(hex_value: str) -> QIcon:
     return QIcon(image)
 
 
+def color_combo(parent: QWidget, selected: str) -> QComboBox:
+    """Build identical main/secondary palettes with visible color swatches."""
+    combo = QComboBox(parent)
+    combo.setIconSize(QSize(18, 18))
+    for key, label, hex_value in COLOR_PRESETS:
+        combo.addItem(color_swatch_icon(hex_value), label, key)
+    combo.setCurrentIndex(max(0, combo.findData(selected)))
+    return combo
+
+
 class SettingsDialog(QDialog):
     """Edit all phases, including order, text color and per-phase opacity."""
 
@@ -102,7 +114,7 @@ class SettingsDialog(QDialog):
 
         self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
         reset_loop_button = QPushButton("ループ数をリセット", self)
-        reset_loop_button.clicked.connect(self._reset_loop)
+        reset_loop_button.clicked.connect(lambda _checked=False: self.loop_reset.emit())
 
         loop_row = QHBoxLayout()
         loop_row.addWidget(self.loop_label)
@@ -115,7 +127,7 @@ class SettingsDialog(QDialog):
         form.addRow("ループ数", loop_row)
 
         reset_timer_button = QPushButton("現在のフェーズをリセット", self)
-        reset_timer_button.clicked.connect(self._reset_timer)
+        reset_timer_button.clicked.connect(lambda _checked=False: self.timer_reset.emit())
         form.addRow("タイマー", reset_timer_button)
 
         self.table = QTableWidget(0, 7, self)
@@ -134,18 +146,7 @@ class SettingsDialog(QDialog):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        self._render_rows([
-            {
-                "name": phase.name,
-                "minutes": phase.minutes,
-                "color": phase.color,
-                "font_size": phase.font_size,
-                "opacity": phase.opacity,
-                "gradient": phase.gradient,
-                "gradient_end": phase.gradient_end,
-            }
-            for phase in timer.phases
-        ])
+        self._render_rows([asdict(phase) for phase in timer.phases])
         self.position_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
         self.style_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
 
@@ -218,11 +219,7 @@ class SettingsDialog(QDialog):
         minutes.setValue(int(phase["minutes"]))
         self.table.setCellWidget(row, 1, minutes)
 
-        color = QComboBox(self.table)
-        color.setIconSize(QSize(18, 18))
-        for key, label, hex_value in COLOR_PRESETS:
-            color.addItem(color_swatch_icon(hex_value), label, key)
-        color.setCurrentIndex(max(0, color.findData(phase["color"])))
+        color = color_combo(self.table, phase["color"])
         self.table.setCellWidget(row, 2, color)
 
         sub_cell = QWidget(self.table)
@@ -231,11 +228,7 @@ class SettingsDialog(QDialog):
         gradient = QCheckBox("ON", sub_cell)
         gradient.setToolTip("グラデーション")
         gradient.setChecked(bool(phase["gradient"]))
-        gradient_end = QComboBox(sub_cell)
-        gradient_end.setIconSize(QSize(18, 18))
-        for key, label, hex_value in COLOR_PRESETS:
-            gradient_end.addItem(color_swatch_icon(hex_value), label, key)
-        gradient_end.setCurrentIndex(max(0, gradient_end.findData(phase["gradient_end"])))
+        gradient_end = color_combo(sub_cell, phase["gradient_end"])
         gradient_end.setEnabled(gradient.isChecked())
         gradient.toggled.connect(gradient_end.setEnabled)
         sub_layout.addWidget(gradient)
@@ -253,8 +246,9 @@ class SettingsDialog(QDialog):
         font_size_label = QLabel(f"{font_size.value()} pt", size_cell)
         font_size_label.setMinimumWidth(52)
         font_size.valueChanged.connect(
-            lambda value, label=font_size_label: self._size_changed(label, value)
+            lambda value, label=font_size_label: label.setText(f"{value} pt")
         )
+        font_size.valueChanged.connect(lambda _value: self._notify_change())
         size_layout.addWidget(font_size)
         size_layout.addWidget(font_size_label)
         self.table.setCellWidget(row, 4, size_cell)
@@ -297,9 +291,7 @@ class SettingsDialog(QDialog):
         color.currentIndexChanged.connect(lambda _index: self._notify_change())
         gradient.toggled.connect(lambda _value: self._notify_change())
         gradient_end.currentIndexChanged.connect(lambda _value: self._notify_change())
-        opacity.valueChanged.connect(
-            lambda value, label=opacity_label: self._opacity_changed(label, value)
-        )
+        opacity.valueChanged.connect(lambda _value: self._notify_change())
 
     def _confirm_initialize(self) -> None:
         """Require explicit confirmation before discarding every saved setting."""
@@ -334,38 +326,13 @@ class SettingsDialog(QDialog):
             self.style_combo.setCurrentIndex(self.style_combo.findData(style))
         finally:
             self._rendering = False
-        self._render_rows([
-            {
-                "name": phase.name,
-                "minutes": phase.minutes,
-                "color": phase.color,
-                "font_size": phase.font_size,
-                "opacity": phase.opacity,
-                "gradient": phase.gradient,
-                "gradient_end": phase.gradient_end,
-            }
-            for phase in phases
-        ])
+        self._render_rows([asdict(phase) for phase in phases])
         self.result_phases = phases
         self._last_emitted_appearance = (position, style)
         self.set_loop_number(loop_number)
 
-    def _reset_timer(self) -> None:
-        self.timer_reset.emit()
-
-    def _reset_loop(self) -> None:
-        self.loop_reset.emit()
-
-    def set_loop_number(self, number: int) -> None:
+     def set_loop_number(self, number: int) -> None:
         self.loop_label.setText(f"LOOP {number:02d}")
-
-    def _size_changed(self, label: QLabel, value: int) -> None:
-        label.setText(f"{value} pt")
-        self._notify_change()
-
-    def _opacity_changed(self, label: QLabel, value: int) -> None:
-        label.setText(f"{value}%")
-        self._notify_change()
 
     def _notify_change(self, force_restart: bool = False) -> None:
         if self._rendering:
@@ -468,7 +435,7 @@ class SettingsDialog(QDialog):
 
     def _add_phase(self) -> None:
         rows = self._snapshot()
-        rows.append({"name": "新しいフェーズ", "minutes": 5, "color": "sky", "font_size": DEFAULT_FONT_SIZE, "opacity": 100, "gradient": True, "gradient_end": "violet"})
+        rows.append(asdict(PhaseConfig("新しいフェーズ", 5, color="sky")))
         self._render_rows(rows)
         self.table.scrollToBottom()
         self._notify_change(force_restart=True)
@@ -501,7 +468,7 @@ class FocusLoopApp:
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
         self._last_loop_saved = loop_number
         self.overlay = Overlay(self.position, self.timer_model.current_phase, self.display_style)
-        self.tray = QSystemTrayIcon(self._tray_icon(), qt_app)
+        self.tray = QSystemTrayIcon(clock_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
         self.menu = QMenu()
         self.status_action = self.menu.addAction("")
@@ -529,10 +496,6 @@ class FocusLoopApp:
         self.qt_timer = QTimer(qt_app)
         self.qt_timer.setInterval(200)
         self.qt_timer.timeout.connect(self.update)
-
-    @staticmethod
-    def _tray_icon() -> QIcon:
-        return clock_icon()
 
     def start(self) -> bool:
         if not QSystemTrayIcon.isSystemTrayAvailable():
