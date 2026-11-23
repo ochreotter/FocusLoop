@@ -437,6 +437,7 @@ class SettingsDialog(QDialog):
     changed = Signal(object, bool)
     loop_reset = Signal()
     timer_reset = Signal()
+    skip_requested = Signal()
     pause_toggle = Signal()
     initialize_requested = Signal()
     language_changed = Signal(str)
@@ -474,6 +475,9 @@ class SettingsDialog(QDialog):
         timer_reset.setObjectName("timer_reset_button")
         self.timer_reset_button = timer_reset
         timer_reset.clicked.connect(lambda: self.timer_reset.emit())
+        self.skip_button = QPushButton(tr("次のフェーズへ", self.language), self)
+        self.skip_button.setObjectName("skip_button")
+        self.skip_button.clicked.connect(lambda: self.skip_requested.emit())
 
         self.cards_container = QWidget(self)
         self.cards_layout = QVBoxLayout(self.cards_container)
@@ -509,13 +513,21 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         footer = QHBoxLayout()
         footer.setSpacing(6)
-        footer.addWidget(self.loop_label)
-        footer.addWidget(loop_reset)
-        footer.addWidget(timer_reset)
         footer.addWidget(self.pause_button)
-        footer.addStretch()
-        footer.addWidget(initialize)
-        footer.addWidget(buttons)
+        footer.addWidget(self.skip_button)
+        footer.addWidget(timer_reset)
+        footer.addWidget(loop_reset)
+        footer.addWidget(self.loop_label)
+        footer.addStretch(1)
+
+        # Keep the final two buttons tightly grouped at the far right,
+        # with the same spacing as the timer controls on the left.
+        right_actions = QHBoxLayout()
+        right_actions.setContentsMargins(0, 0, 0, 0)
+        right_actions.setSpacing(6)
+        right_actions.addWidget(initialize)
+        right_actions.addWidget(buttons)
+        footer.addLayout(right_actions)
 
         layout = QVBoxLayout(self)
         layout.addLayout(language_row)
@@ -660,6 +672,7 @@ class SettingsDialog(QDialog):
         self.language_label.setText(tr("言語", language))
         self.loop_reset_button.setText(tr("ループ数をリセット", language))
         self.timer_reset_button.setText(tr("現在のフェーズをリセット", language))
+        self.skip_button.setText(tr("次のフェーズへ", language))
         self.add_button.setText(tr("＋ フェーズを追加", language))
         self.note_label.setText(tr(self.note_text, language))
         self.initialize_button.setText(tr("設定初期化", language))
@@ -721,6 +734,8 @@ class FocusLoopApp:
         self.skip_action.triggered.connect(self.skip)
         self.reset_action = self.menu.addAction(tr("現在のフェーズをリセット", self.language))
         self.reset_action.triggered.connect(self.reset)
+        self.loop_reset_action = self.menu.addAction(tr("ループ数をリセット", self.language))
+        self.loop_reset_action.triggered.connect(self._reset_loop_count)
         self.menu.addSeparator()
 
         self.settings_action = self.menu.addAction(tr("設定", self.language))
@@ -910,6 +925,7 @@ class FocusLoopApp:
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
         dialog.timer_reset.connect(self.reset)
+        dialog.skip_requested.connect(self.skip)
         dialog.pause_toggle.connect(self.toggle_pause)
         dialog.initialize_requested.connect(self._initialize_defaults)
         dialog.language_changed.connect(self._set_language)
@@ -927,6 +943,7 @@ class FocusLoopApp:
         self.settings.sync()
         self.skip_action.setText(tr("次のフェーズへ", language))
         self.reset_action.setText(tr("現在のフェーズをリセット", language))
+        self.loop_reset_action.setText(tr("ループ数をリセット", language))
         self.settings_action.setText(tr("設定", language))
         self.quit_action.setText(tr("終了", language))
         self.last_display = None
