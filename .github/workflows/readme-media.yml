@@ -26,6 +26,13 @@ jobs:
           cache: pip
       - name: Install Qt and image dependencies
         run: python -m pip install -r requirements.txt Pillow
+      - name: Download Japanese font for screenshots only (not distributed)
+        shell: pwsh
+        run: |
+          $font = Join-Path $env:RUNNER_TEMP 'NotoSansCJKjp-Regular.otf'
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf' -OutFile $font -TimeoutSec 120
+          if ((Get-Item $font).Length -lt 1MB) { throw 'Japanese preview font download incomplete' }
+          "FOCUSLOOP_DOCS_CJK_FONT=$font" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Capture actual FocusLoop UI and animated timer frames
         run: python -m scripts.generate_readme_media
       - name: Commit images to README branch
