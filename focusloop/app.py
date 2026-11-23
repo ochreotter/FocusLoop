@@ -181,7 +181,7 @@ class SettingsDialog(QDialog):
         note = QLabel(
             "設定は変更と同時に反映・保存されます。"
             "左端の「⠿」をドラッグして順番を変更できます。"
-            "フェーズの順番・分数を変更すると、先頭から再スタートします."
+            "フェーズの順番・分数を変更すると、先頭から再スタートします。"
             "名前・色・透過率・位置・文字サイズの変更では時間をリセットしません。"
             "「閉じる」を押しても設定は保持されます。",
             self,
@@ -366,7 +366,7 @@ class FocusLoopApp:
         self.reset_action.triggered.connect(self.reset)
         self.menu.addSeparator()
 
-        settings_action = self.menu.addAction("フェーズ・表示の設定…")
+        settings_action = self.menu.addAction("設定")
         settings_action.triggered.connect(self.show_settings)
         self.menu.addSeparator()
         quit_action = self.menu.addAction("終了")
