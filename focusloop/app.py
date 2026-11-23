@@ -36,6 +36,7 @@ from .icons import clock_icon
 from .overlay import Overlay
 from .timer import (
     COLOR_PRESETS,
+    DEFAULT_FONT_SIZE,
     MAX_FONT_SIZE,
     MIN_FONT_SIZE,
     FocusTimer,
