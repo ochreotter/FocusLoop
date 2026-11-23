@@ -234,6 +234,13 @@ class FocusTimer:
             self.loop_number += 1
         self.restart(now=now)
 
+    def previous(self, *, now: float | None = None) -> None:
+        """Go back one phase, wrapping to the last phase of the prior loop."""
+        if self.phase_index == 0:
+            self.loop_number = max(1, self.loop_number - 1)
+        self.phase_index = (self.phase_index - 1) % len(self.phases)
+        self.restart(now=now)
+
     def reset_loop_count(self) -> None:
         """Reset the loop counter without changing the active phase or deadline."""
         self.loop_number = 1
