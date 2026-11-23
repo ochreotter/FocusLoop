@@ -36,6 +36,7 @@ Python is **not** required for the packaged Windows app. Keep the entire extract
 - **Two display modes.** Choose the standard ring view or a minimal **Simple** mode showing only the countdown.
 - **Per-phase customization.** Set a name, duration (1–240 minutes), color (seven presets), optional two-color gradient, font size (8–300 pt), opacity (0–100%), position, always-on-top behavior, and visibility.
 - **System tray controls.** Pause/resume, move to the previous or next phase, reset the current phase or loop count, open settings, or quit.
+- **One instance per user.** Running FocusLoop again while it is in the system tray opens the existing settings window instead of launching another timer.
 - **Notifications.** Optional Windows notifications on phase changes and manual skips.
 - **English and Japanese UI.** Switch languages instantly without resetting the timer. Phase names are never automatically translated.
 - **Settings saved automatically.** Changes take effect immediately and persist across launches.
