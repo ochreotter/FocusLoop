@@ -133,7 +133,7 @@ class CardSettingsTests(unittest.TestCase):
         self.assertIn("集中", card.title.text())
         self.assertEqual(card.name.maxLength(), 40)
         self.assertEqual((card.minutes.minimum(), card.minutes.maximum()), (1, 240))
-        self.assertEqual((card.size.minimum(), card.size.maximum()), (8, 200))
+        self.assertEqual((card.size.minimum(), card.size.maximum()), (8, 300))
         self.assertEqual((card.opacity.minimum(), card.opacity.maximum()), (0, 100))
         self.assertTrue(all(event is False for event in self.events))
 
@@ -260,6 +260,46 @@ class AppRegressionTests(unittest.TestCase):
         self.directory.cleanup()
         self.app.processEvents()
 
+    def test_settings_pause_resume_button_tracks_tray_and_initialization(self):
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        button = dialog.pause_button
+        self.assertEqual(button.objectName(), "pause_button")
+        self.assertEqual(button.text(), "一時停止")
+        self.assertEqual(
+            button.cursor().shape(), Qt.CursorShape.PointingHandCursor,
+        )
+        original_loop = self.controller.timer_model.loop_number
+        original_remaining = self.controller.timer_model.remaining_seconds()
+
+        button.click()
+        self.assertTrue(self.controller.timer_model.paused)
+        self.assertEqual(button.text(), "再開")
+        self.assertEqual(self.controller.pause_action.text(), "再開")
+        paused_remaining = self.controller.timer_model.remaining_seconds()
+        self.assertLessEqual(abs(paused_remaining - original_remaining), 1)
+        self.assertEqual(self.controller.timer_model.remaining_seconds(), paused_remaining)
+
+        # The tray action must also update the settings button state.
+        self.controller.pause_action.trigger()
+        self.assertFalse(self.controller.timer_model.paused)
+        self.assertEqual(button.text(), "一時停止")
+        self.assertEqual(self.controller.pause_action.text(), "一時停止")
+        self.assertEqual(self.controller.timer_model.loop_number, original_loop)
+
+        self.controller.toggle_pause()
+        self.assertEqual(button.text(), "再開")
+        self.assertTrue(self.controller.timer_model.paused)
+        self.controller._initialize_defaults()
+        self.assertFalse(self.controller.timer_model.paused)
+        self.assertEqual(dialog.pause_button.text(), "一時停止")
+        self.assertEqual(self.controller.pause_action.text(), "一時停止")
+
+        self.controller.toggle_pause()
+        dialog.close()
+        self.controller.show_settings()
+        self.assertEqual(self.controller.settings_dialog.pause_button.text(), "再開")
+
     def test_per_phase_display_position_and_topmost_switch_on_skip(self):
         self.controller.overlay.show()
         self.controller.show_settings()
@@ -297,8 +337,10 @@ class AppRegressionTests(unittest.TestCase):
         bounds = self.app.primaryScreen().availableGeometry()
         for simple in (False, True):
             card.simple.setChecked(simple)
-            card.size.setValue(200)
+            card.size.setValue(300)
             overlay = self.controller.overlay.geometry()
+            self.assertEqual(self.controller.timer_model.current_phase.font_size, 300)
+            self.assertLessEqual(self.controller.overlay._render_font_size, 300)
             self.assertLessEqual(abs(overlay.center().x() - bounds.center().x()), 1)
             self.assertLessEqual(abs(overlay.center().y() - bounds.center().y()), 1)
             self.assertTrue(bounds.contains(overlay))
