@@ -1,7 +1,4 @@
-"""Small, dependency-free Japanese/English UI dictionary.
-
-Persisted phase identifiers and user-authored names never depend on locale.
-"""
+"""Small Japanese/English UI dictionary; phase names are never translated."""
 
 LANGUAGES = ("ja", "en")
 
@@ -26,7 +23,7 @@ ENGLISH = {
     "メイン色": "Main color",
     "サブ色・グラデーション": "Secondary color / Gradient",
     "サイズ": "Size",
-    "透過率": "Opacity",
+    "不透明度": "Opacity",
     "表示モード": "Display mode",
     "ウィンドウ": "Window",
     "最前面に表示": "Always on top",
@@ -76,23 +73,7 @@ ENGLISH = {
     " 分": " min",
 }
 
-STANDARD_NAMES = {
-    "作業中": "Working",
-    "休憩中": "On Break",
-    "作業": "Work",
-    "休憩": "Break",
-    "新しいフェーズ": "New phase",
-}
-JAPANESE_NAMES = {english: japanese for japanese, english in STANDARD_NAMES.items()}
-
 
 def translate(text: str, language: str = "ja") -> str:
-    """Translate a built-in UI string, leaving unsupported strings unchanged."""
+    """Translate UI chrome only; never pass user-provided phase names here."""
     return ENGLISH.get(text, text) if language == "en" else text
-
-
-def phase_name(name: str, language: str = "ja") -> str:
-    """Only localize known built-in phase names; keep custom names untouched."""
-    if language == "en":
-        return STANDARD_NAMES.get(name, name)
-    return JAPANESE_NAMES.get(name, name)
