@@ -308,21 +308,36 @@ def launch_updater(prepared: PreparedUpdate) -> None:
     # The new frozen executable is an independent process, not a PyInstaller
     # subprocess of the old bootloader whose bundle path is about to vanish.
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    # PyInstaller sets a process-local DLL lookup path on Windows. Restore the
+    # system lookup path while starting PowerShell, then put it back for Qt.
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    kernel32 = None
+    if bundle_dir:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetDllDirectoryW.argtypes = [ctypes.c_wchar_p]
+        kernel32.SetDllDirectoryW.restype = ctypes.c_bool
+        if not kernel32.SetDllDirectoryW(None):
+            raise UpdateError("Could not restore the system DLL search path")
     try:
-        subprocess.Popen(
-            [
-                "powershell.exe", "-NoProfile", "-NonInteractive",
-                "-ExecutionPolicy", "Bypass",
-                "-File", str(prepared.helper_script),
-                "-TargetDir", str(prepared.install_dir),
-                "-StagedDir", str(prepared.staged_dir),
-                "-ParentPid", str(os.getpid()),
-                "-LogFile", str(log),
-            ],
-            env=env,
-            cwd=str(prepared.helper_script.parent),
-            close_fds=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except OSError as exc:
-        raise UpdateError(f"Could not start the Windows update helper: {exc}") from exc
+        try:
+            subprocess.Popen(
+                [
+                    "powershell.exe", "-NoProfile", "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", str(prepared.helper_script),
+                    "-TargetDir", str(prepared.install_dir),
+                    "-StagedDir", str(prepared.staged_dir),
+                    "-ParentPid", str(os.getpid()),
+                    "-LogFile", str(log),
+                ],
+                env=env,
+                cwd=str(prepared.helper_script.parent),
+                close_fds=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except OSError as exc:
+            raise UpdateError(f"Could not start the Windows update helper: {exc}") from exc
+    finally:
+        if kernel32 is not None:
+            kernel32.SetDllDirectoryW(str(bundle_dir))
