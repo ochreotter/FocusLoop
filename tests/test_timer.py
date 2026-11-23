@@ -283,6 +283,56 @@ class TimerTests(unittest.TestCase):
         self.assertEqual(timer.current_phase.name, "休憩中")
         self.assertEqual(timer.loop_number, 6)
 
+    def test_previous_from_first_wraps_and_decrements_loop_without_underflow(self):
+        timer = FocusTimer((
+            PhaseConfig("Work", 1),
+            PhaseConfig("Break", 2),
+            PhaseConfig("Rest", 3),
+        ), now=0.0, initial_loop=5)
+        self.assertEqual(timer.loop_number, 5)
+        timer.previous(now=10.0)
+        self.assertEqual(timer.phase_index, 2)
+        self.assertEqual(timer.loop_number, 4)
+        self.assertEqual(timer.remaining_seconds(now=10.0), 180)
+        self.assertEqual(timer.remaining_seconds(now=40.0), 150)
+
+        timer.skip(now=50.0)
+        self.assertEqual(timer.phase_index, 0)
+        self.assertEqual(timer.loop_number, 5)
+        self.assertEqual(timer.remaining_seconds(now=50.0), 60)
+        timer.skip(now=60.0)
+        self.assertEqual(timer.phase_index, 1)
+        timer.previous(now=75.0)
+        self.assertEqual(timer.phase_index, 0)
+        self.assertEqual(timer.loop_number, 5)
+        self.assertEqual(timer.remaining_seconds(now=75.0), 60)
+
+        timer.reset_loop_count()
+        timer.previous(now=80.0)
+        self.assertEqual(timer.phase_index, 2)
+        self.assertEqual(timer.loop_number, 1)
+        self.assertEqual(timer.remaining_seconds(now=80.0), 180)
+
+    def test_previous_while_paused_and_single_phase(self):
+        timer = FocusTimer(now=0.0, initial_loop=3)
+        timer.pause(now=15.0)
+        self.assertTrue(timer.paused)
+        timer.previous(now=100.0)
+        self.assertEqual(timer.phase_index, 1)
+        self.assertEqual(timer.loop_number, 2)
+        self.assertTrue(timer.paused)
+        self.assertEqual(timer.remaining_seconds(now=10000.0), 900)
+        timer.resume(now=200.0)
+        self.assertEqual(timer.remaining_seconds(now=220.0), 880)
+
+        one = FocusTimer((PhaseConfig("Solo", 2),), now=0.0, initial_loop=2)
+        one.previous(now=40.0)
+        self.assertEqual(one.phase_index, 0)
+        self.assertEqual(one.loop_number, 1)
+        self.assertEqual(one.remaining_seconds(now=40.0), 120)
+        one.previous(now=50.0)
+        self.assertEqual(one.loop_number, 1)
+
     def test_reset_loop_count_does_not_restart_running_timer(self):
         timer = FocusTimer(initial_loop=12, now=0.0)
         deadline = timer._deadline
