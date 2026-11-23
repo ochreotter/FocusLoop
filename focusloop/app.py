@@ -288,9 +288,19 @@ class PhaseCard(QFrame):
         self.simple.setChecked(bool(values["simple"]))
         field(3, 0, "表示モード", self.simple)
 
-        self.topmost = QCheckBox("最前面に表示", self.body)
+        window_options = QWidget(self.body)
+        window_layout = QHBoxLayout(window_options)
+        window_layout.setContentsMargins(0, 0, 0, 0)
+        window_layout.setSpacing(14)
+        self.topmost = QCheckBox("最前面に表示", window_options)
         self.topmost.setChecked(bool(values["topmost"]))
-        field(3, 1, "ウィンドウ", self.topmost)
+        self.hidden = QCheckBox("非表示", window_options)
+        self.hidden.setToolTip("このフェーズの間はタイマー表示だけを隠す")
+        self.hidden.setChecked(bool(values["hidden"]))
+        window_layout.addWidget(self.topmost)
+        window_layout.addWidget(self.hidden)
+        window_layout.addStretch()
+        field(3, 1, "ウィンドウ", window_options)
 
         self.position = QComboBox(self.body)
         for label, value in POSITIONS:
@@ -329,6 +339,7 @@ class PhaseCard(QFrame):
         for widget in (
             self.name, self.minutes, self.color, self.gradient, self.gradient_end,
             self.size, self.opacity, self.simple, self.position, self.topmost,
+            self.hidden,
         ):
             if isinstance(widget, QLineEdit):
                 widget.textChanged.connect(self._changed)
@@ -356,6 +367,7 @@ class PhaseCard(QFrame):
             "simple": self.simple.isChecked(),
             "position": self.position.currentData(),
             "topmost": self.topmost.isChecked(),
+            "hidden": self.hidden.isChecked(),
         }
 
     def _refresh_summary(self) -> None:
@@ -369,9 +381,11 @@ class PhaseCard(QFrame):
         )
         mode = "Simple" if self.simple.isChecked() else "標準"
         front = "最前面ON" if self.topmost.isChecked() else "最前面OFF"
+        visibility = " · 非表示" if self.hidden.isChecked() else ""
         self.summary.setText(
             f"{self.minutes.value()}分 · {main}{secondary} · "
-            f"{mode} · {positions.get(self.position.currentData(), '?')} · {front}"
+            f"{mode} · {positions.get(self.position.currentData(), '?')} · "
+            f"{front}{visibility}"
         )
 
     def _changed(self, *_args) -> None:
@@ -638,6 +652,7 @@ class FocusLoopApp:
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
         self._last_loop_saved = loop_number
         self.overlay = Overlay(self.timer_model.current_phase)
+        self._overlay_started = False
         self.tray = QSystemTrayIcon(clock_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
         self.menu = QMenu()
@@ -674,8 +689,7 @@ class FocusLoopApp:
             )
             return False
         self.tray.show()
-        self.overlay.show()
-        self.overlay.reposition()
+        self._overlay_started = True
         self.update()
         self.qt_timer.start()
         return True
@@ -688,6 +702,13 @@ class FocusLoopApp:
         self.overlay.set_clock(
             display, phase, remaining / (phase.minutes * 60), self.timer_model.loop_number
         )
+        # Hidden is a phase display setting, not a timer pause: the model and
+        # tray keep updating. Do not show a window before start() is called.
+        if phase.hidden and self.overlay.isVisible():
+            self.overlay.hide()
+        elif not phase.hidden and self._overlay_started and not self.overlay.isVisible():
+            self.overlay.show()
+            self.overlay.reposition()
         if self.timer_model.loop_number != self._last_loop_saved:
             self._save_loop_number()
         state = (display, phase, self.timer_model.paused)
@@ -818,6 +839,7 @@ class FocusLoopApp:
         self.update()
 
     def close(self) -> None:
+        self._overlay_started = False
         self.qt_timer.stop()
         if self.settings_dialog is not None:
             self.settings_dialog.close()
