@@ -6,6 +6,9 @@ ENGLISH = {
     "言語": "Language",
     "通知する": "Notifications",
     "設定": "Settings",
+    "更新を確認": "Check for updates",
+    "確認中...": "Checking...",
+    "ダウンロード中...": "Downloading...",
     "システムトレイを利用できないため、起動できません。":
         "FocusLoop cannot start because the system tray is unavailable.",
     "一時停止": "Pause",
