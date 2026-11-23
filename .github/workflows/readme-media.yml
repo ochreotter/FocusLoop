@@ -1,4 +1,5 @@
 name: Generate README screenshots and GIF (one shot)
+# Retry after fixing PySide6 imports
 
 on:
   push:
