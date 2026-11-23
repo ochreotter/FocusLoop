@@ -628,9 +628,12 @@ class FocusLoopApp:
             _int_setting(self.settings, "font_size", DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE)
             if self.settings.contains("font_size") else None
         )
-        old_position = str(self.settings.value("position", "bottom_left"))
-        if old_position not in POSITION_VALUES:
-            old_position = "bottom_left"
+        old_position = (
+            str(self.settings.value("position"))
+            if self.settings.contains("position") else None
+        )
+        if old_position is not None and old_position not in POSITION_VALUES:
+            old_position = None
         old_style = str(self.settings.value("display_style", "modern"))
         phases = phases_from_json(
             self.settings.value("phases_json", None),
