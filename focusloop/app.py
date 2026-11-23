@@ -6,6 +6,7 @@ from PySide6.QtCore import QPoint, QSize, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractButton,
     QComboBox,
     QCheckBox,
     QDialog,
@@ -38,6 +39,7 @@ from .timer import (
     MIN_FONT_SIZE,
     FocusTimer,
     PhaseConfig,
+    default_phases,
     phases_from_json,
     phases_to_json,
 )
@@ -78,6 +80,7 @@ class SettingsDialog(QDialog):
     changed = Signal(object, bool)
     loop_reset = Signal()
     timer_reset = Signal()
+    initialize_requested = Signal()
 
     def __init__(self, parent, timer: FocusTimer, position: str, style: str) -> None:
         super().__init__(parent)
@@ -163,12 +166,22 @@ class SettingsDialog(QDialog):
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("閉じる")
         buttons.rejected.connect(self.reject)
 
+        initialize_button = QPushButton("初期化", self)
+        initialize_button.setObjectName("initialize_button")
+        initialize_button.setToolTip("設定とタイマーをすべて初期値に戻す")
+        initialize_button.clicked.connect(self._confirm_initialize)
+        footer = QHBoxLayout()
+        footer.addWidget(initialize_button)
+        footer.addStretch()
+        footer.addWidget(buttons)
+
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(self.table)
         layout.addWidget(add_button)
         layout.addWidget(note)
-        layout.addWidget(buttons)
+        layout.addLayout(footer)
+        self._set_button_cursors()
 
     def _render_rows(self, rows: list[dict]) -> None:
         # Row rebuilds initialize widgets and must not trigger partial saves.
@@ -181,6 +194,12 @@ class SettingsDialog(QDialog):
         finally:
             self.table.setUpdatesEnabled(True)
             self._rendering = False
+            self._set_button_cursors()
+
+    def _set_button_cursors(self) -> None:
+        """Show that buttons and checkboxes are clickable, including dynamic rows."""
+        for button in self.findChildren(QAbstractButton):
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _add_row(self, phase: dict) -> None:
         row = self.table.rowCount()
@@ -274,6 +293,55 @@ class SettingsDialog(QDialog):
         opacity.valueChanged.connect(
             lambda value, label=opacity_label: self._opacity_changed(label, value)
         )
+
+    def _confirm_initialize(self) -> None:
+        """Require explicit confirmation before discarding every saved setting."""
+        message = QMessageBox(self)
+        message.setWindowTitle("FocusLoop - 初期化")
+        message.setIcon(QMessageBox.Icon.Warning)
+        message.setText("すべての設定を初期化しますか？")
+        message.setInformativeText(
+            "フェーズ・色・サイズ・表示位置・表示スタイル・ループ数を初期値に戻し、"
+            "作業45:00からタイマーを再開します。この操作は取り消せません。"
+        )
+        message.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        confirm = message.button(QMessageBox.StandardButton.Yes)
+        confirm.setText("初期化する")
+        cancel = message.button(QMessageBox.StandardButton.Cancel)
+        cancel.setText("キャンセル")
+        message.setDefaultButton(cancel)
+        for button in message.buttons():
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+        if message.exec() == QMessageBox.StandardButton.Yes:
+            self.initialize_requested.emit()
+
+    def restore_defaults(
+        self, phases: tuple[PhaseConfig, ...], position: str, style: str, loop_number: int
+    ) -> None:
+        """Replace editor values without emitting partial/duplicate settings updates."""
+        self._rendering = True
+        try:
+            self.position_combo.setCurrentIndex(self.position_combo.findData(position))
+            self.style_combo.setCurrentIndex(self.style_combo.findData(style))
+        finally:
+            self._rendering = False
+        self._render_rows([
+            {
+                "name": phase.name,
+                "minutes": phase.minutes,
+                "color": phase.color,
+                "font_size": phase.font_size,
+                "opacity": phase.opacity,
+                "gradient": phase.gradient,
+                "gradient_end": phase.gradient_end,
+            }
+            for phase in phases
+        ])
+        self.result_phases = phases
+        self._last_emitted_appearance = (position, style)
+        self.set_loop_number(loop_number)
 
     def _reset_timer(self) -> None:
         self.timer_reset.emit()
@@ -374,6 +442,8 @@ class SettingsDialog(QDialog):
         cancel = message.button(QMessageBox.StandardButton.Cancel)
         cancel.setText("キャンセル")
         message.setDefaultButton(cancel)
+        for button in message.buttons():
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
         if message.exec() == QMessageBox.StandardButton.Yes:
             self._delete_row(editor)
 
@@ -506,6 +576,28 @@ class FocusLoopApp:
         self._save_loop_number()
         self.update()
 
+    def _initialize_defaults(self) -> None:
+        """Reset all saved settings and timer state to the app's real defaults."""
+        phases = default_phases()
+        self.timer_model = FocusTimer(phases)
+        self.position = "bottom_left"
+        self.display_style = "modern"
+        self._last_loop_saved = 1
+        self.last_display = None
+
+        # Clear the old compatibility keys too so they cannot reappear later.
+        self.settings.clear()
+        self.settings.setValue("phases_json", phases_to_json(phases))
+        self.settings.setValue("position", self.position)
+        self.settings.setValue("display_style", self.display_style)
+        self.settings.setValue("loop_number", 1)
+        self.settings.sync()
+
+        self.overlay.apply_appearance(self.position, self.display_style)
+        if self.settings_dialog is not None:
+            self.settings_dialog.restore_defaults(phases, self.position, self.display_style, 1)
+        self.update()
+
     def _notify_phase_change(self) -> None:
         """Send a Windows system-tray notification at each phase transition."""
         phase = self.timer_model.current_phase
@@ -568,6 +660,7 @@ class FocusLoopApp:
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
         dialog.timer_reset.connect(self.reset)
+        dialog.initialize_requested.connect(self._initialize_defaults)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
         dialog.show()
