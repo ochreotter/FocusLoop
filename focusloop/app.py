@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 
 from .geometry import tray_menu_position
 from .icons import clock_icon
-from .overlay import DISPLAY_STYLES, Overlay
+from .overlay import Overlay
 from .timer import (
     COLOR_PRESETS,
     DEFAULT_FONT_SIZE,
@@ -40,6 +40,7 @@ from .timer import (
     MIN_FONT_SIZE,
     FocusTimer,
     PhaseConfig,
+    POSITION_VALUES,
     default_phases,
     phases_from_json,
     phases_to_json,
@@ -114,24 +115,12 @@ class SettingsDialog(QDialog):
     timer_reset = Signal()
     initialize_requested = Signal()
 
-    def __init__(self, parent, timer: FocusTimer, position: str, style: str) -> None:
+    def __init__(self, parent, timer: FocusTimer) -> None:
         super().__init__(parent)
         self.setWindowTitle("FocusLoop - 設定")
-        self.setMinimumWidth(1120)
+        self.setMinimumWidth(1310)
         self.setMinimumHeight(450)
         self.result_phases: tuple[PhaseConfig, ...] | None = None
-        self._last_emitted_appearance = (position, style)
-
-        self.position_combo = QComboBox(self)
-        for label, value in POSITIONS:
-            self.position_combo.addItem(label, value)
-        self.position_combo.setCurrentIndex(max(0, self.position_combo.findData(position)))
-
-        self.style_combo = QComboBox(self)
-        for label, value in DISPLAY_STYLES:
-            self.style_combo.addItem(label, value)
-        self.style_combo.setCurrentIndex(max(0, self.style_combo.findData(style)))
-
         self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
         reset_loop_button = QPushButton("ループ数をリセット", self)
         reset_loop_button.clicked.connect(lambda _checked=False: self.loop_reset.emit())
@@ -142,16 +131,17 @@ class SettingsDialog(QDialog):
         loop_row.addStretch()
 
         form = QFormLayout()
-        form.addRow("表示位置", self.position_combo)
-        form.addRow("表示スタイル", self.style_combo)
         form.addRow("ループ数", loop_row)
 
         reset_timer_button = QPushButton("現在のフェーズをリセット", self)
         reset_timer_button.clicked.connect(lambda _checked=False: self.timer_reset.emit())
         form.addRow("タイマー", reset_timer_button)
 
-        self.table = QTableWidget(0, 7, self)
-        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "メイン色", "サブ色・グラデーション", "サイズ", "透過率", "削除"))
+        self.table = QTableWidget(0, 9, self)
+        self.table.setHorizontalHeaderLabels((
+            "フェーズ名", "時間", "メイン色", "サブ色・グラデーション",
+            "サイズ", "透過率", "Simple", "表示位置", "削除",
+        ))
         handle = self.table.verticalHeader()
         handle.show()
         handle.setFixedWidth(44)
@@ -166,9 +156,9 @@ class SettingsDialog(QDialog):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
         self._render_rows([asdict(phase) for phase in timer.phases])
-        self.position_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
-        self.style_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
 
         add_button = QPushButton("＋ フェーズを追加", self)
         add_button.clicked.connect(self._add_phase)
@@ -177,7 +167,7 @@ class SettingsDialog(QDialog):
             "設定は変更と同時に反映・保存されます。"
             "左端の「⠿」をドラッグして順番を変更できます。"
             "フェーズの順番・分数を変更すると、先頭から再スタートします。"
-            "名前・色・透過率・表示スタイル・グラデーション・位置・サイズの変更では時間をリセットしません。"
+            "名前・色・透過率・Simple・グラデーション・位置・サイズの変更では時間をリセットしません。"
             "「閉じる」を押しても設定は保持されます。",
             self,
         )
@@ -287,6 +277,16 @@ class SettingsDialog(QDialog):
         opacity_layout.addWidget(opacity_label)
         self.table.setCellWidget(row, 5, opacity_cell)
 
+        simple = QCheckBox("Simple", self.table)
+        simple.setChecked(bool(phase["simple"]))
+        self.table.setCellWidget(row, 6, simple)
+
+        position = QComboBox(self.table)
+        for label, value in POSITIONS:
+            position.addItem(label, value)
+        position.setCurrentIndex(max(0, position.findData(phase["position"])))
+        self.table.setCellWidget(row, 7, position)
+
         # Use an inner wrapper so the button never fills/overflows its table cell.
         delete_cell = QWidget(self.table)
         delete_layout = QHBoxLayout(delete_cell)
@@ -304,7 +304,7 @@ class SettingsDialog(QDialog):
         )
         delete.clicked.connect(lambda checked=False, editor=name: self._confirm_delete_row(editor))
         delete_layout.addWidget(delete)
-        self.table.setCellWidget(row, 6, delete_cell)
+        self.table.setCellWidget(row, 8, delete_cell)
 
         name.textChanged.connect(lambda _text: self._notify_change())
         minutes.valueChanged.connect(lambda _value: self._notify_change())
@@ -312,6 +312,8 @@ class SettingsDialog(QDialog):
         gradient.toggled.connect(lambda _value: self._notify_change())
         gradient_end.currentIndexChanged.connect(lambda _value: self._notify_change())
         opacity.valueChanged.connect(lambda _value: self._notify_change())
+        simple.toggled.connect(lambda _checked: self._notify_change())
+        position.currentIndexChanged.connect(lambda _index: self._notify_change())
 
     def _confirm_initialize(self) -> None:
         if confirm_change(
@@ -323,21 +325,14 @@ class SettingsDialog(QDialog):
             self.initialize_requested.emit()
 
     def restore_defaults(
-        self, phases: tuple[PhaseConfig, ...], position: str, style: str, loop_number: int
+        self, phases: tuple[PhaseConfig, ...], loop_number: int
     ) -> None:
-        """Replace editor values without emitting partial/duplicate settings updates."""
-        self._rendering = True
-        try:
-            self.position_combo.setCurrentIndex(self.position_combo.findData(position))
-            self.style_combo.setCurrentIndex(self.style_combo.findData(style))
-        finally:
-            self._rendering = False
+        """Rebuild all phase editors from defaults without emitting partial changes."""
         self._render_rows([asdict(phase) for phase in phases])
         self.result_phases = phases
-        self._last_emitted_appearance = (position, style)
         self.set_loop_number(loop_number)
 
-     def set_loop_number(self, number: int) -> None:
+    def set_loop_number(self, number: int) -> None:
         self.loop_label.setText(f"LOOP {number:02d}")
 
     def _notify_change(self, force_restart: bool = False) -> None:
@@ -353,6 +348,8 @@ class SettingsDialog(QDialog):
                     font_size=row["font_size"],
                     gradient=row["gradient"],
                     gradient_end=row["gradient_end"],
+                    simple=row["simple"],
+                    position=row["position"],
                 )
                 for row in self._snapshot()
             )
@@ -361,14 +358,8 @@ class SettingsDialog(QDialog):
             # the input is valid, without interrupting the user with a dialog.
             return
 
-        appearance = (self.position_combo.currentData(), self.style_combo.currentData())
-        if (
-            force_restart
-            or phases != self.result_phases
-            or appearance != self._last_emitted_appearance
-        ):
+        if force_restart or phases != self.result_phases:
             self.result_phases = phases
-            self._last_emitted_appearance = appearance
             self.changed.emit(self, force_restart)
 
     def _snapshot(self) -> list[dict]:
@@ -386,6 +377,8 @@ class SettingsDialog(QDialog):
                 "opacity": opacity_cell.findChild(QSlider).value(),
                 "gradient": self.table.cellWidget(index, 3).findChild(QCheckBox).isChecked(),
                 "gradient_end": self.table.cellWidget(index, 3).findChild(QComboBox).currentData(),
+                "simple": self.table.cellWidget(index, 6).isChecked(),
+                "position": self.table.cellWidget(index, 7).currentData(),
             })
         return rows
 
@@ -444,23 +437,23 @@ class FocusLoopApp:
         legacy_font_size = _int_setting(
             self.settings, "font_size", DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE
         )
+        old_position = str(self.settings.value("position", "bottom_left"))
+        if old_position not in POSITION_VALUES:
+            old_position = "bottom_left"
+        old_style = str(self.settings.value("display_style", "modern"))
         phases = phases_from_json(
             self.settings.value("phases_json", None),
             legacy_work=old_work,
             legacy_break=old_break,
             legacy_font_size=legacy_font_size,
+            legacy_position=old_position,
+            legacy_simple=(old_style == "simple"),
         )
-        self.position = str(self.settings.value("position", "bottom_left"))
-        if self.position not in {value for _, value in POSITIONS}:
-            self.position = "bottom_left"
-        self.display_style = str(self.settings.value("display_style", "modern"))
-        if self.display_style not in {value for _, value in DISPLAY_STYLES}:
-            self.display_style = "modern"
         loop_number = _int_setting(self.settings, "loop_number", 1, 1, 2_147_483_647)
 
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
         self._last_loop_saved = loop_number
-        self.overlay = Overlay(self.position, self.timer_model.current_phase, self.display_style)
+        self.overlay = Overlay(self.timer_model.current_phase)
         self.tray = QSystemTrayIcon(clock_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
         self.menu = QMenu()
@@ -543,22 +536,17 @@ class FocusLoopApp:
         """Reset all saved settings and timer state to the app's real defaults."""
         phases = default_phases()
         self.timer_model = FocusTimer(phases)
-        self.position = "bottom_left"
-        self.display_style = "modern"
         self._last_loop_saved = 1
         self.last_display = None
 
         # Clear the old compatibility keys too so they cannot reappear later.
         self.settings.clear()
         self.settings.setValue("phases_json", phases_to_json(phases))
-        self.settings.setValue("position", self.position)
-        self.settings.setValue("display_style", self.display_style)
         self.settings.setValue("loop_number", 1)
         self.settings.sync()
 
-        self.overlay.apply_appearance(self.position, self.display_style)
         if self.settings_dialog is not None:
-            self.settings_dialog.restore_defaults(phases, self.position, self.display_style, 1)
+            self.settings_dialog.restore_defaults(phases, 1)
         self.update()
 
     def _notify_phase_change(self) -> None:
@@ -618,7 +606,7 @@ class FocusLoopApp:
             self.settings_dialog.activateWindow()
             return
 
-        dialog = SettingsDialog(None, self.timer_model, self.position, self.display_style)
+        dialog = SettingsDialog(None, self.timer_model)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
@@ -638,16 +626,7 @@ class FocusLoopApp:
         if dialog.result_phases is None:
             return
         self.timer_model.configure(dialog.result_phases, force_restart=force_restart)
-        position = str(dialog.position_combo.currentData())
-        style = str(dialog.style_combo.currentData())
-        if (position, style) != (self.position, self.display_style):
-            self.position = position
-            self.display_style = style
-            self.overlay.apply_appearance(position, style)
-
         self.settings.setValue("phases_json", phases_to_json(self.timer_model.phases))
-        self.settings.setValue("position", self.position)
-        self.settings.setValue("display_style", self.display_style)
         self.settings.sync()
         self.update()
 
