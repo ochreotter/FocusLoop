@@ -85,7 +85,7 @@ def default_phases(
         PhaseConfig(
             "休憩中", break_minutes, color="mint", opacity=20,
             font_size=300 if font_size is None else font_size,
-            gradient_end="white", position="center",
+            gradient=False, gradient_end="white", position="center",
         ),
     )
 
