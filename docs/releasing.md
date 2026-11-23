@@ -4,13 +4,13 @@
 
 ## タグとドラフトRelease
 
-`main`のCIと実機確認が終わったら、対象コミットへ`v1.0.0`形式のタグを付けます。
+`main`のCIと実機確認が終わったら、対象コミットへ`1.0.0`形式（`v`なし）のタグを付けます。
 
 ```bash
 git switch main
 git pull --ff-only
-git tag -a v1.0.0 -m "FocusLoop v1.0.0"
-git push origin v1.0.0
+git tag -a 1.0.0 -m "FocusLoop 1.0.0"
+git push origin 1.0.0
 ```
 
 タグのpushにより`.github/workflows/release.yml`が動き、Windowsのフォルダー形式ZIPをビルドしてGitHubの**ドラフトRelease**に添付します。ライセンスの最終確認が終わるまで公開されません。既に使ったタグは上書きせず、修正は次のバージョンで行います。

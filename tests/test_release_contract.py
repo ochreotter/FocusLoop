@@ -20,7 +20,8 @@ class ReleaseContractTests(unittest.TestCase):
     def test_tag_release_is_draft_and_never_publishes_automatically(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("tags:", workflow)
-        self.assertIn("'v*'", workflow)
+        self.assertIn("'[0-9]+.[0-9]+.[0-9]+'", workflow)
+        self.assertNotIn("'v*'", workflow)
         self.assertIn("contents: write", workflow)
         self.assertIn("softprops/action-gh-release@v3", workflow)
         self.assertIn("draft: true", workflow)
