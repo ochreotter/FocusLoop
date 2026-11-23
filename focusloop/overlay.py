@@ -71,7 +71,7 @@ class Overlay(QWidget):
         self._resize_and_reposition()
 
     def _resize_and_reposition(self) -> None:
-        """Fit both modes into the visible screen, including 200pt user settings."""
+        """Fit both modes into the visible screen, including 300pt user settings."""
         screen = QGuiApplication.primaryScreen()
         area = screen.availableGeometry() if screen else None
         margin = 24
@@ -206,7 +206,7 @@ class Overlay(QWidget):
         loop_font.setPixelSize(max(9, round(side * 0.055)))
         loop_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, max(1.0, side * 0.004))
         painter.setFont(loop_font)
-        loop_rect = QRectF(x + side * 0.18, y + side * 0.27, side * 0.64, side * 0.11)
+        loop_rect = QRectF(x + side * 0.18, y + side * 0.66, side * 0.64, side * 0.11)
         draw_shadowed_text(
             painter, loop_rect, f"LOOP {self.loop_number:02d}", QColor("#E1E6F0"),
         )
@@ -220,7 +220,7 @@ class Overlay(QWidget):
             QColor(COLOR_HEX[self.phase_config.color]),
         )
 
-        badge = QRectF(x + side * 0.30, y + side * 0.66, side * 0.40, side * 0.125)
+        badge = QRectF(x + side * 0.30, y + side * 0.27, side * 0.40, side * 0.125)
         badge_color = QColor(COLOR_HEX[self.phase_config.color])
         badge_color.setAlpha(55)
         painter.setPen(Qt.PenStyle.NoPen)
