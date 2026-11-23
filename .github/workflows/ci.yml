@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   check:
+    name: Logic and syntax
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,3 +21,19 @@ jobs:
         run: python -m compileall -q main.py focusloop tests
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+
+  ui:
+    name: Settings UI smoke test
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Qt dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run UI smoke tests
+        run: python -m unittest discover -s tests/ui -v

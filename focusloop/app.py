@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .geometry import tray_menu_position
 from .timer import (
     COLOR_HEX,
     COLOR_PRESETS,
@@ -123,6 +124,8 @@ class Overlay(QWidget):
 class SettingsDialog(QDialog):
     """Edit all phases, including order, text color and per-phase opacity."""
 
+    applied = Signal(object)
+
     def __init__(self, parent, timer: FocusTimer, font_size: int, position: str) -> None:
         super().__init__(parent)
         self.setWindowTitle("FocusLoop - 設定")
@@ -169,15 +172,22 @@ class SettingsDialog(QDialog):
         note = QLabel(
             "上から順に自動で繰り返します。"
             "フェーズの順番・名前・分数を変更すると、先頭から再スタートします。"
-            "色・透過率・位置・文字サイズのみの変更では時間をリセットしません。",
+            "色・透過率・位置・文字サイズのみの変更では時間をリセットしません。"
+            "「適用」を押すと画面を閉じずに変更を反映します。"
+            "適用済みの変更は「キャンセル」後も保持されます。",
             self,
         )
         note.setWordWrap(True)
 
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+            | QDialogButtonBox.StandardButton.Apply,
             parent=self,
         )
+        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        apply_button.setText("適用")
+        apply_button.clicked.connect(self.apply_changes)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
@@ -292,7 +302,7 @@ class SettingsDialog(QDialog):
         self._render_rows(rows)
         self.table.scrollToBottom()
 
-    def accept(self) -> None:
+    def _validate_changes(self) -> bool:
         try:
             self.result_phases = tuple(
                 PhaseConfig(
@@ -305,8 +315,19 @@ class SettingsDialog(QDialog):
             )
         except ValueError as error:
             QMessageBox.warning(self, "FocusLoop", f"設定内容をご確認ください：{error}")
-            return
-        super().accept()
+            return False
+        return True
+
+    def apply_changes(self) -> None:
+        """Save and display changes immediately without closing this dialog."""
+        if self._validate_changes():
+            self.applied.emit(self)
+
+    def accept(self) -> None:
+        """OK applies pending changes and closes the dialog."""
+        if self._validate_changes():
+            self.applied.emit(self)
+            super().accept()
 
 
 class FocusLoopApp:
@@ -349,8 +370,9 @@ class FocusLoopApp:
         quit_action = self.menu.addAction("終了")
         quit_action.triggered.connect(self.close)
 
-        self.tray.setContextMenu(self.menu)
+        # Handle context clicks ourselves to keep the entire menu above the taskbar.
         self.tray.activated.connect(self._tray_activated)
+        self.settings_dialog: SettingsDialog | None = None
         self.last_display = None
         self.qt_timer = QTimer(qt_app)
         self.qt_timer.setInterval(200)
@@ -408,11 +430,30 @@ class FocusLoopApp:
             )
 
     def _tray_activated(self, reason) -> None:
-        if reason in (
-            QSystemTrayIcon.ActivationReason.Trigger,
-            QSystemTrayIcon.ActivationReason.DoubleClick,
-        ):
-            self.toggle_pause()
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            # One left-click opens the settings; pause/resume stays in the menu.
+            self.show_settings()
+        elif reason == QSystemTrayIcon.ActivationReason.Context:
+            self._show_tray_menu()
+
+    def _show_tray_menu(self) -> None:
+        cursor = QCursor.pos()
+        screen = QGuiApplication.screenAt(cursor) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        bounds = screen.availableGeometry()
+        size = self.menu.sizeHint()
+        x, y = tray_menu_position(
+            cursor.x(),
+            cursor.y(),
+            bounds.x(),
+            bounds.y(),
+            bounds.width(),
+            bounds.height(),
+            size.width(),
+            size.height(),
+        )
+        self.menu.popup(QPoint(x, y))
 
     def toggle_pause(self) -> None:
         self.timer_model.toggle_pause()
@@ -427,14 +468,33 @@ class FocusLoopApp:
         self.update()
 
     def show_settings(self) -> None:
+        """Show one modeless settings window, keeping the timer running."""
+        if self.settings_dialog is not None:
+            self.settings_dialog.show()
+            self.settings_dialog.raise_()
+            self.settings_dialog.activateWindow()
+            return
+
         dialog = SettingsDialog(None, self.timer_model, self.font_size, self.position)
-        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.result_phases is None:
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.applied.connect(self._apply_settings)
+        dialog.finished.connect(self._settings_closed)
+        self.settings_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _settings_closed(self, result: int) -> None:
+        self.settings_dialog = None
+
+    def _apply_settings(self, dialog: SettingsDialog) -> None:
+        """Persist and preview settings without closing the settings window."""
+        if dialog.result_phases is None:
             return
         self.timer_model.configure(dialog.result_phases)
         self.font_size = dialog.font_spin.value()
         self.position = str(dialog.position_combo.currentData())
         self.overlay.apply_appearance(self.font_size, self.position)
-
         self.settings.setValue("phases_json", phases_to_json(self.timer_model.phases))
         self.settings.setValue("font_size", self.font_size)
         self.settings.setValue("position", self.position)
@@ -443,6 +503,8 @@ class FocusLoopApp:
 
     def close(self) -> None:
         self.qt_timer.stop()
+        if self.settings_dialog is not None:
+            self.settings_dialog.close()
         self.overlay.close()
         self.tray.hide()
         self.qt_app.quit()
