@@ -24,6 +24,9 @@ COLOR_PRESETS = (
 COLOR_HEX = {key: hex_value for key, _, hex_value in COLOR_PRESETS}
 MIN_MINUTES = 1
 MAX_MINUTES = 240
+MIN_FONT_SIZE = 8
+MAX_FONT_SIZE = 200
+DEFAULT_FONT_SIZE = 42
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class PhaseConfig:
     minutes: int
     color: str = "white"
     opacity: int = 100
+    font_size: int = DEFAULT_FONT_SIZE
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not 1 <= len(self.name.strip()) <= 40:
@@ -42,13 +46,19 @@ class PhaseConfig:
             raise ValueError("unknown phase color")
         if type(self.opacity) is not int or not 0 <= self.opacity <= 100:
             raise ValueError("opacity must be between 0 and 100")
+        if type(self.font_size) is not int or not MIN_FONT_SIZE <= self.font_size <= MAX_FONT_SIZE:
+            raise ValueError(f"font_size must be between {MIN_FONT_SIZE} and {MAX_FONT_SIZE}")
 
 
-def default_phases(work_minutes: int = 45, break_minutes: int = 15) -> tuple[PhaseConfig, ...]:
+def default_phases(
+    work_minutes: int = 45,
+    break_minutes: int = 15,
+    font_size: int = DEFAULT_FONT_SIZE,
+) -> tuple[PhaseConfig, ...]:
     """Construct the default pair, optionally retaining old time settings."""
     return (
-        PhaseConfig("作業", work_minutes, "white", 100),
-        PhaseConfig("休憩", break_minutes, "mint", 100),
+        PhaseConfig("作業", work_minutes, "white", 100, font_size),
+        PhaseConfig("休憩", break_minutes, "mint", 100, font_size),
     )
 
 
@@ -62,9 +72,10 @@ def phases_from_json(
     *,
     legacy_work: int = 45,
     legacy_break: int = 15,
+    legacy_font_size: int = DEFAULT_FONT_SIZE,
 ) -> tuple[PhaseConfig, ...]:
     """Read new settings; fall back to the old pair if empty or invalid."""
-    fallback = default_phases(legacy_work, legacy_break)
+    fallback = default_phases(legacy_work, legacy_break, legacy_font_size)
     if not isinstance(value, str) or not value:
         return fallback
     try:
@@ -78,6 +89,7 @@ def phases_from_json(
                     minutes=row["minutes"],
                     color=row["color"],
                     opacity=row["opacity"],
+                    font_size=row.get("font_size", legacy_font_size),
                 )
                 for row in rows
             ]
@@ -175,7 +187,7 @@ class FocusTimer:
         now: float | None = None,
         force_restart: bool = False,
     ) -> None:
-        """Keep time when only display properties or names change.
+        """Keep time when only display properties (including font size) or names change.
 
         A duration/count change or explicit reorder restarts the cycle.
         """
