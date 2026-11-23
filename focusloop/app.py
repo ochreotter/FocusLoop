@@ -438,6 +438,7 @@ class SettingsDialog(QDialog):
     loop_reset = Signal()
     timer_reset = Signal()
     skip_requested = Signal()
+    previous_requested = Signal()
     pause_toggle = Signal()
     initialize_requested = Signal()
     language_changed = Signal(str)
@@ -484,6 +485,9 @@ class SettingsDialog(QDialog):
         timer_reset.setObjectName("timer_reset_button")
         self.timer_reset_button = timer_reset
         timer_reset.clicked.connect(lambda: self.timer_reset.emit())
+        self.previous_button = QPushButton(tr("前のフェーズへ", self.language), self)
+        self.previous_button.setObjectName("previous_button")
+        self.previous_button.clicked.connect(lambda: self.previous_requested.emit())
         self.skip_button = QPushButton(tr("次のフェーズへ", self.language), self)
         self.skip_button.setObjectName("skip_button")
         self.skip_button.clicked.connect(lambda: self.skip_requested.emit())
@@ -523,6 +527,7 @@ class SettingsDialog(QDialog):
         footer = QHBoxLayout()
         footer.setSpacing(6)
         footer.addWidget(self.pause_button)
+        footer.addWidget(self.previous_button)
         footer.addWidget(self.skip_button)
         footer.addWidget(timer_reset)
         footer.addWidget(loop_reset)
@@ -691,6 +696,7 @@ class SettingsDialog(QDialog):
         self.notifications_checkbox.setText(tr("通知する", language))
         self.loop_reset_button.setText(tr("ループ数をリセット", language))
         self.timer_reset_button.setText(tr("現在のフェーズをリセット", language))
+        self.previous_button.setText(tr("前のフェーズへ", language))
         self.skip_button.setText(tr("次のフェーズへ", language))
         self.add_button.setText(tr("＋ フェーズを追加", language))
         self.note_label.setText(tr(self.note_text, language))
@@ -752,6 +758,8 @@ class FocusLoopApp:
 
         self.pause_action = self.menu.addAction(tr("一時停止", self.language))
         self.pause_action.triggered.connect(self.toggle_pause)
+        self.previous_action = self.menu.addAction(tr("前のフェーズへ", self.language))
+        self.previous_action.triggered.connect(self.previous)
         self.skip_action = self.menu.addAction(tr("次のフェーズへ", self.language))
         self.skip_action.triggered.connect(self.skip)
         self.reset_action = self.menu.addAction(tr("現在のフェーズをリセット", self.language))
@@ -935,6 +943,11 @@ class FocusLoopApp:
         self.update()
         self._notify_phase_change()
 
+    def previous(self) -> None:
+        self.timer_model.previous()
+        self.update()
+        self._notify_phase_change()
+
     def reset(self) -> None:
         self.timer_model.restart()
         self.update()
@@ -955,6 +968,7 @@ class FocusLoopApp:
         dialog.loop_reset.connect(self._reset_loop_count)
         dialog.timer_reset.connect(self.reset)
         dialog.skip_requested.connect(self.skip)
+        dialog.previous_requested.connect(self.previous)
         dialog.pause_toggle.connect(self.toggle_pause)
         dialog.initialize_requested.connect(self._initialize_defaults)
         dialog.language_changed.connect(self._set_language)
@@ -978,6 +992,7 @@ class FocusLoopApp:
         self.language = language
         self.settings.setValue("language", language)
         self.settings.sync()
+        self.previous_action.setText(tr("前のフェーズへ", language))
         self.skip_action.setText(tr("次のフェーズへ", language))
         self.reset_action.setText(tr("現在のフェーズをリセット", language))
         self.loop_reset_action.setText(tr("ループ数をリセット", language))
