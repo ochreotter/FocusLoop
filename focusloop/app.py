@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QGuiApplication, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QGuiApplication, QIcon, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -21,11 +21,13 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSystemTrayIcon,
     QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from .geometry import tray_menu_position
+from .icons import clock_icon
 from .timer import (
     COLOR_HEX,
     COLOR_PRESETS,
@@ -148,8 +150,13 @@ class SettingsDialog(QDialog):
         form.addRow("表示位置", self.position_combo)
 
         self.table = QTableWidget(0, 5, self)
-        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "透過率", "並べ替え・削除"))
-        self.table.verticalHeader().hide()
+        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "透過率", "削除"))
+        handle = self.table.verticalHeader()
+        handle.show()
+        handle.setFixedWidth(44)
+        handle.setSectionsMovable(True)
+        handle.setHighlightSections(False)
+        handle.sectionMoved.connect(self._on_row_reordered)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -173,7 +180,8 @@ class SettingsDialog(QDialog):
 
         note = QLabel(
             "設定は変更と同時に反映・保存されます。"
-            "フェーズの順番・分数を変更すると、先頭から再スタートします。"
+            "左端の「⠿」をドラッグして順番を変更できます。"
+            "フェーズの順番・分数を変更すると、先頭から再スタートします."
             "名前・色・透過率・位置・文字サイズの変更では時間をリセットしません。"
             "「閉じる」を押しても設定は保持されます。",
             self,
@@ -207,6 +215,7 @@ class SettingsDialog(QDialog):
         row = self.table.rowCount()
         self.table.insertRow(row)
         self.table.setRowHeight(row, 44)
+        self.table.setVerticalHeaderItem(row, QTableWidgetItem("⠿"))
 
         name = QLineEdit(str(phase["name"]), self.table)
         name.setMaxLength(40)
@@ -240,22 +249,10 @@ class SettingsDialog(QDialog):
         opacity_layout.addWidget(opacity_label)
         self.table.setCellWidget(row, 3, opacity_cell)
 
-        buttons_cell = QWidget(self.table)
-        buttons_layout = QHBoxLayout(buttons_cell)
-        buttons_layout.setContentsMargins(2, 0, 2, 0)
-        up = QPushButton("↑", buttons_cell)
-        down = QPushButton("↓", buttons_cell)
-        delete = QPushButton("×", buttons_cell)
-        up.setToolTip("上へ")
-        down.setToolTip("下へ")
+        delete = QPushButton("削除", self.table)
         delete.setToolTip("削除（最低1フェーズは必要）")
-        for button in (up, down, delete):
-            button.setFixedWidth(30)
-            buttons_layout.addWidget(button)
-        up.clicked.connect(lambda checked=False, editor=name: self._move_row(editor, -1))
-        down.clicked.connect(lambda checked=False, editor=name: self._move_row(editor, 1))
         delete.clicked.connect(lambda checked=False, editor=name: self._delete_row(editor))
-        self.table.setCellWidget(row, 4, buttons_cell)
+        self.table.setCellWidget(row, 4, delete)
 
         name.textChanged.connect(lambda _text: self._notify_change())
         minutes.valueChanged.connect(lambda _value: self._notify_change())
@@ -291,8 +288,11 @@ class SettingsDialog(QDialog):
             self.changed.emit(self, force_restart)
 
     def _snapshot(self) -> list[dict]:
+        """Read phases in their current visible order (which may be dragged)."""
         rows = []
-        for index in range(self.table.rowCount()):
+        header = self.table.verticalHeader()
+        for visual in range(self.table.rowCount()):
+            index = header.logicalIndex(visual)
             opacity_cell = self.table.cellWidget(index, 3)
             rows.append({
                 "name": self.table.cellWidget(index, 0).text(),
@@ -302,21 +302,15 @@ class SettingsDialog(QDialog):
             })
         return rows
 
+    def _on_row_reordered(self, logical: int, old_visual: int, new_visual: int) -> None:
+        if not self._rendering:
+            self._notify_change(force_restart=True)
+
     def _row_for_editor(self, editor: QWidget) -> int:
         for index in range(self.table.rowCount()):
             if self.table.cellWidget(index, 0) is editor:
                 return index
         return -1
-
-    def _move_row(self, editor: QWidget, change: int) -> None:
-        row = self._row_for_editor(editor)
-        other = row + change
-        if row < 0 or not 0 <= other < self.table.rowCount():
-            return
-        rows = self._snapshot()
-        rows[row], rows[other] = rows[other], rows[row]
-        self._render_rows(rows)
-        self._notify_change(force_restart=True)
 
     def _delete_row(self, editor: QWidget) -> None:
         if self.table.rowCount() <= 1:
@@ -325,7 +319,8 @@ class SettingsDialog(QDialog):
         row = self._row_for_editor(editor)
         if row >= 0:
             rows = self._snapshot()
-            rows.pop(row)
+            visible_index = self.table.verticalHeader().visualIndex(row)
+            rows.pop(visible_index)
             self._render_rows(rows)
             self._notify_change(force_restart=True)
 
@@ -387,20 +382,7 @@ class FocusLoopApp:
 
     @staticmethod
     def _tray_icon() -> QIcon:
-        pixmap = QPixmap(64, 64)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#253B62"))
-        painter.drawRoundedRect(3, 3, 58, 58, 14, 14)
-        painter.setPen(QColor("#FFFFFF"))
-        font = QFont("Segoe UI", 23)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "F")
-        painter.end()
-        return QIcon(pixmap)
+        return clock_icon()
 
     def start(self) -> bool:
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -431,10 +413,17 @@ class FocusLoopApp:
             self.tray.setToolTip(f"FocusLoop - {title} {display}")
             self.last_display = state
         if switched:
-            self.tray.showMessage(
-                "FocusLoop", f"「{phase.name}」の時間になりました。",
-                QSystemTrayIcon.MessageIcon.Information, 4000
-            )
+            self._notify_phase_change()
+
+    def _notify_phase_change(self) -> None:
+        """Send a Windows system-tray notification at each phase transition."""
+        phase = self.timer_model.current_phase
+        self.tray.showMessage(
+            "FocusLoop",
+            f"「{phase.name}」を開始しました（{phase.minutes}分）。",
+            QSystemTrayIcon.MessageIcon.Information,
+            6000,
+        )
 
     def _tray_activated(self, reason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -469,6 +458,7 @@ class FocusLoopApp:
     def skip(self) -> None:
         self.timer_model.skip()
         self.update()
+        self._notify_phase_change()
 
     def reset(self) -> None:
         self.timer_model.restart()
