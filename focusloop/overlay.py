@@ -13,6 +13,17 @@ from .timer import COLOR_HEX, MIN_FONT_SIZE, PhaseConfig
 DISPLAY_STYLES = (("Modern", "modern"), ("Simple", "simple"))
 
 
+def remaining_arc_angles(remaining_ratio: float) -> tuple[int, int]:
+    """Qt angle units: remove progress from 12 o'clock clockwise as time elapses.
+
+    Qt angles are positive counterclockwise and expressed in 1/16 degrees.
+    At 75% remaining, 12–3 o'clock is empty and 3–12 is still colored.
+    """
+    ratio = max(0.0, min(1.0, remaining_ratio))
+    elapsed = 1.0 - ratio
+    return round((90 - 360 * elapsed) * 16), -round(360 * ratio * 16)
+
+
 class Overlay(QWidget):
     """Paint a click-through timer; never paint an opaque background panel."""
 
@@ -79,10 +90,14 @@ class Overlay(QWidget):
             return
         rect = screen.availableGeometry()
         margin = 24
-        is_right = self.position_name.endswith("right")
-        is_bottom = self.position_name.startswith("bottom")
-        x = rect.right() - self.width() - margin if is_right else rect.left() + margin
-        y = rect.bottom() - self.height() - margin if is_bottom else rect.top() + margin
+        if self.position_name == "center":
+            x = rect.left() + (rect.width() - self.width()) // 2
+            y = rect.top() + (rect.height() - self.height()) // 2
+        else:
+            is_right = self.position_name.endswith("right")
+            is_bottom = self.position_name.startswith("bottom")
+            x = rect.right() - self.width() - margin if is_right else rect.left() + margin
+            y = rect.bottom() - self.height() - margin if is_bottom else rect.top() + margin
         self.move(QPoint(x, y))
 
     def set_clock(
@@ -166,7 +181,7 @@ class Overlay(QWidget):
             progress_pen = QPen(QBrush(brush), ring_width)
             progress_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(progress_pen)
-            painter.drawArc(arc, 90 * 16, -round(360 * 16 * self.remaining_ratio))
+            painter.drawArc(arc, *remaining_arc_angles(self.remaining_ratio))
 
         loop_font = QFont("Segoe UI")
         loop_font.setPixelSize(max(9, round(side * 0.055)))

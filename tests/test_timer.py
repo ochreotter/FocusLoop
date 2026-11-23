@@ -4,6 +4,8 @@ import json
 import unittest
 
 from focusloop.timer import (
+    COLOR_HEX,
+    COLOR_PRESETS,
     FocusTimer,
     PhaseConfig,
     MAX_FONT_SIZE,
@@ -214,6 +216,17 @@ class TimerTests(unittest.TestCase):
         migrated = phases_from_json(old)
         self.assertTrue(migrated[0].gradient)
         self.assertEqual(migrated[0].gradient_end, "violet")
+
+    def test_black_palette_works_as_main_and_secondary_color(self):
+        self.assertEqual(COLOR_HEX["black"], "#000000")
+        self.assertIn(("black", "ブラック", "#000000"), COLOR_PRESETS)
+        self.assertEqual(len(COLOR_PRESETS), 7)
+        phase = PhaseConfig("作業", 45, color="black", gradient_end="black")
+        self.assertEqual(phases_from_json(phases_to_json((phase,))), (phase,))
+        self.assertEqual(
+            phases_from_json(phases_to_json((phase,)))[0].gradient_end,
+            "black",
+        )
 
     def test_invalid_gradient_settings(self):
         for kwargs in ({"gradient": "true"}, {"gradient_end": "invalid"}):

@@ -14,6 +14,7 @@ from typing import Sequence
 # (identifier, user-facing name, hexadecimal text color)
 COLOR_PRESETS = (
     ("white", "ホワイト", "#F5F7FC"),
+    ("black", "ブラック", "#000000"),
     ("mint", "ミント", "#55E6B6"),
     ("sky", "スカイブルー", "#69C7FF"),
     ("amber", "アンバー", "#FFC36B"),
