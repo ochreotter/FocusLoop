@@ -157,7 +157,7 @@ class PhaseCard(QFrame):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        self._click_surfaces: list[QWidget] = []
+        self._header_click_surfaces: list[QWidget] = []
 
         # The entire header is a toggle target; drag/reorder controls remain independent.
         self.header_widget = QWidget(self)
@@ -181,7 +181,7 @@ class PhaseCard(QFrame):
         self.summary = QLabel(self.header_widget)
         self.summary.setTextFormat(Qt.TextFormat.PlainText)
         self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("color: palette(mid);")
+        self.summary.setStyleSheet("color: palette(window-text); font-weight: 500;")
         caption = QVBoxLayout()
         caption.setSpacing(3)
         caption.addWidget(self.title)
@@ -230,7 +230,7 @@ class PhaseCard(QFrame):
             column.addWidget(label_widget)
             column.addWidget(editor)
             fields.addWidget(area, row, col)
-            self._click_surfaces.extend((area, label_widget))
+
 
         self.name = QLineEdit(str(values["name"]), self.body)
         self.name.setMaxLength(40)
@@ -315,17 +315,17 @@ class PhaseCard(QFrame):
         self.delete_button.clicked.connect(lambda: owner._confirm_delete_card(self))
         delete_layout.addWidget(self.delete_button)
         fields.addWidget(delete_area, 4, 1)
-        self._click_surfaces.append(delete_area)
+
 
         outer.addWidget(self.body)
         self.body.hide()
-        self._click_surfaces.extend(
-            (self.header_widget, self.title, self.summary, self.body)
+        # Only the header toggles the accordion. The body stays a passive editor.
+        self._header_click_surfaces.extend(
+            (self.header_widget, self.title, self.summary)
         )
-        for surface in self._click_surfaces:
+        for surface in self._header_click_surfaces:
             surface.setCursor(Qt.CursorShape.PointingHandCursor)
             surface.installEventFilter(self)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         for widget in (
             self.name, self.minutes, self.color, self.gradient, self.gradient_end,
             self.size, self.opacity, self.simple, self.position, self.topmost,
@@ -383,22 +383,15 @@ class PhaseCard(QFrame):
         self.expand_button.setText("∧" if enabled else "∨")
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
-        # Only passive surfaces toggle; buttons and editors keep their own clicks.
+        # Limit toggling to header text/background; inputs remain independent.
         if (
-            watched in self._click_surfaces
+            watched in self._header_click_surfaces
             and event.type() == QEvent.Type.MouseButtonRelease
             and event.button() == Qt.MouseButton.LeftButton
         ):
             self.expand_button.toggle()
             return True
         return super().eventFilter(watched, event)
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt API
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.expand_button.toggle()
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt API
         if event.mimeData().hasFormat("application/x-focusloop-phase"):
