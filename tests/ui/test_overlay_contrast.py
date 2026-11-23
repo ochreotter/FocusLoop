@@ -1,6 +1,5 @@
 """Offscreen rendering tests for readable text on light and dark desktops."""
 
-from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
