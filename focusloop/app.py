@@ -347,9 +347,14 @@ class FocusLoopApp:
         self.position = str(self.settings.value("position", "bottom_left"))
         if self.position not in {value for _, value in POSITIONS}:
             self.position = "bottom_left"
+        self.display_style = str(self.settings.value("display_style", "modern"))
+        if self.display_style not in {value for _, value in DISPLAY_STYLES}:
+            self.display_style = "modern"
+        loop_number = _int_setting(self.settings, "loop_number", 1, 1, 2_147_483_647)
 
-        self.timer_model = FocusTimer(phases)
-        self.overlay = Overlay(self.position, self.timer_model.current_phase)
+        self.timer_model = FocusTimer(phases, initial_loop=loop_number)
+        self._last_loop_saved = loop_number
+        self.overlay = Overlay(self.position, self.timer_model.current_phase, self.display_style)
         self.tray = QSystemTrayIcon(self._tray_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
         self.menu = QMenu()
@@ -401,9 +406,13 @@ class FocusLoopApp:
         remaining = self.timer_model.remaining_seconds()
         display = f"{remaining // 60:02d}:{remaining % 60:02d}"
         phase = self.timer_model.current_phase
+        self.overlay.set_clock(
+            display, phase, remaining / (phase.minutes * 60), self.timer_model.loop_number
+        )
+        if self.timer_model.loop_number != self._last_loop_saved:
+            self._save_loop_number()
         state = (display, phase, self.timer_model.paused)
         if state != self.last_display:
-            self.overlay.set_clock(display, phase)
             title = phase.name
             if self.timer_model.paused:
                 title += " (一時停止)"
@@ -413,6 +422,20 @@ class FocusLoopApp:
             self.last_display = state
         if switched:
             self._notify_phase_change()
+
+    def _save_loop_number(self) -> None:
+        number = self.timer_model.loop_number
+        self.settings.setValue("loop_number", number)
+        self.settings.sync()
+        self._last_loop_saved = number
+        if self.settings_dialog is not None:
+            self.settings_dialog.set_loop_number(number)
+
+    def _reset_loop_count(self) -> None:
+        """Reset the visible loop number while preserving the countdown."""
+        self.timer_model.reset_loop_count()
+        self._save_loop_number()
+        self.update()
 
     def _notify_phase_change(self) -> None:
         """Send a Windows system-tray notification at each phase transition."""
@@ -471,9 +494,10 @@ class FocusLoopApp:
             self.settings_dialog.activateWindow()
             return
 
-        dialog = SettingsDialog(None, self.timer_model, self.position)
+        dialog = SettingsDialog(None, self.timer_model, self.position, self.display_style)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.changed.connect(self._apply_settings)
+        dialog.loop_reset.connect(self._reset_loop_count)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
         dialog.show()
@@ -489,12 +513,15 @@ class FocusLoopApp:
             return
         self.timer_model.configure(dialog.result_phases, force_restart=force_restart)
         position = str(dialog.position_combo.currentData())
-        if position != self.position:
+        style = str(dialog.style_combo.currentData())
+        if (position, style) != (self.position, self.display_style):
             self.position = position
-            self.overlay.apply_appearance(self.position)
+            self.display_style = style
+            self.overlay.apply_appearance(position, style)
 
         self.settings.setValue("phases_json", phases_to_json(self.timer_model.phases))
         self.settings.setValue("position", self.position)
+        self.settings.setValue("display_style", self.display_style)
         self.settings.sync()
         self.update()
 
