@@ -55,7 +55,7 @@ class Overlay(QWidget):
                 width = fm.horizontalAdvance("000:00") + 30
                 height = fm.height() + 26
             else:
-                side = max(fm.horizontalAdvance("000:00") + 90, round(fm.height() * 2.8), 184)
+                side = max(fm.horizontalAdvance("000:00") + 90, round(fm.height() * 4.2), 184)
                 width = height = side
             if (
                 size <= MIN_FONT_SIZE
