@@ -9,12 +9,12 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QDialogButtonBox, QLabel, QMessageBox, QPushButton, QSlider, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QAbstractButton, QCheckBox, QComboBox, QDialogButtonBox, QLabel, QMessageBox, QPushButton, QSlider, QSystemTrayIcon
 
 from focusloop.app import FocusLoopApp, SettingsDialog
 from focusloop.overlay import remaining_arc_angles
 from focusloop.icons import clock_icon, clock_image
-from focusloop.timer import FocusTimer
+from focusloop.timer import FocusTimer, default_phases, phases_to_json
 from scripts.generate_icon import build_ico
 
 
@@ -33,6 +33,46 @@ class SettingsUITests(unittest.TestCase):
     def tearDown(self):
         self.dialog.close()
         self.qt_app.processEvents()
+
+    def test_buttons_and_checkboxes_use_pointing_hand_cursor(self):
+        def check_all():
+            buttons = self.dialog.findChildren(QAbstractButton)
+            self.assertGreater(len(buttons), 5)
+            for button in buttons:
+                self.assertEqual(
+                    button.cursor().shape(), Qt.CursorShape.PointingHandCursor,
+                    f"{type(button).__name__}: {button.text()}",
+                )
+
+        check_all()
+        self.dialog._add_phase()
+        check_all()
+        self.assertEqual(
+            self.dialog.table.cellWidget(2, 6).findChild(QPushButton).cursor().shape(),
+            Qt.CursorShape.PointingHandCursor,
+        )
+
+    def test_initialize_button_requires_confirmation_and_keeps_dialog_open(self):
+        events = []
+        self.dialog.initialize_requested.connect(lambda: events.append(True))
+        button = next(
+            b for b in self.dialog.findChildren(QPushButton) if b.text() == "初期化"
+        )
+        self.assertEqual(button.objectName(), "initialize_button")
+        for answer in (
+            QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.NoButton
+        ):
+            with patch.object(QMessageBox, "exec", return_value=answer) as popup:
+                button.click()
+                popup.assert_called_once()
+            self.assertEqual(events, [])
+            self.assertTrue(self.dialog.isVisible())
+        with patch.object(
+            QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
+        ):
+            button.click()
+        self.assertEqual(events, [True])
+        self.assertTrue(self.dialog.isVisible())
 
     def test_only_close_button(self):
         buttons = self.dialog.findChild(QDialogButtonBox)
@@ -253,6 +293,99 @@ class AppIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.qt_app = QApplication.instance() or QApplication([])
+
+    def test_initialize_restores_everything_and_persists_across_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "settings.ini")
+            with patch(
+                "focusloop.app.QSettings",
+                side_effect=lambda *_args: QSettings(path, QSettings.Format.IniFormat),
+            ):
+                controller = FocusLoopApp(self.qt_app)
+                controller.settings.setValue("work_minutes", 97)
+                controller.settings.setValue("font_size", 185)
+                controller.show_settings()
+                dialog = controller.settings_dialog
+                dialog.position_combo.setCurrentIndex(
+                    dialog.position_combo.findData("center")
+                )
+                dialog.style_combo.setCurrentIndex(
+                    dialog.style_combo.findData("simple")
+                )
+                dialog.table.cellWidget(0, 1).setValue(32)
+                dialog.table.cellWidget(0, 2).setCurrentIndex(
+                    dialog.table.cellWidget(0, 2).findData("black")
+                )
+                dialog.table.cellWidget(0, 4).findChild(QSlider).setValue(111)
+                dialog.table.cellWidget(0, 5).findChild(QSlider).setValue(40)
+                dialog.table.cellWidget(0, 3).findChild(QCheckBox).setChecked(False)
+                dialog._add_phase()
+                controller.timer_model.skip()
+                controller.timer_model.loop_number = 9
+                controller.timer_model.pause()
+                controller.update()
+
+                saved = controller.settings.value("phases_json")
+                self.assertEqual(controller.timer_model.phase_index, 1)
+                self.assertTrue(controller.timer_model.paused)
+                self.assertEqual(controller.display_style, "simple")
+                self.assertEqual(controller.position, "center")
+
+                initialize = next(
+                    b for b in dialog.findChildren(QPushButton) if b.text() == "初期化"
+                )
+                for answer in (
+                    QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.NoButton,
+                ):
+                    with patch.object(QMessageBox, "exec", return_value=answer):
+                        initialize.click()
+                    self.assertEqual(controller.settings.value("phases_json"), saved)
+                    self.assertEqual(controller.timer_model.loop_number, 9)
+                    self.assertEqual(controller.display_style, "simple")
+                    self.assertTrue(controller.timer_model.paused)
+                    self.assertEqual(len(dialog._snapshot()), 3)
+
+                with patch.object(
+                    QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes
+                ):
+                    initialize.click()
+
+                self.assertEqual(controller.timer_model.phases, default_phases())
+                self.assertEqual(controller.timer_model.phase_index, 0)
+                self.assertFalse(controller.timer_model.paused)
+                self.assertEqual(controller.timer_model.loop_number, 1)
+                self.assertEqual(controller.timer_model.remaining_seconds(), 2700)
+                self.assertEqual(controller.display_style, "modern")
+                self.assertEqual(controller.position, "bottom_left")
+                self.assertEqual(controller.overlay.display_style, "modern")
+                self.assertEqual(controller.overlay.position_name, "bottom_left")
+                self.assertEqual(controller.overlay.clock_text, "45:00")
+                self.assertEqual(controller.overlay.loop_number, 1)
+                self.assertTrue(dialog.isVisible())
+                self.assertEqual(dialog.table.rowCount(), 2)
+                self.assertEqual(dialog.result_phases, default_phases())
+                self.assertEqual(dialog.position_combo.currentData(), "bottom_left")
+                self.assertEqual(dialog.style_combo.currentData(), "modern")
+                self.assertEqual(dialog.loop_label.text(), "LOOP 01")
+                self.assertEqual(dialog._snapshot()[0]["color"], "white")
+                self.assertEqual(dialog._snapshot()[0]["font_size"], 42)
+                self.assertTrue(dialog._snapshot()[0]["gradient"])
+                self.assertEqual(dialog._snapshot()[0]["gradient_end"], "violet")
+                self.assertEqual(dialog._snapshot()[0]["opacity"], 100)
+                self.assertEqual(controller.settings.value("phases_json"),
+                                 phases_to_json(default_phases()))
+                self.assertEqual(controller.settings.value("loop_number"), 1)
+                self.assertFalse(controller.settings.contains("work_minutes"))
+                self.assertFalse(controller.settings.contains("font_size"))
+
+                controller.close()
+                reopened = FocusLoopApp(self.qt_app)
+                self.assertEqual(reopened.timer_model.phases, default_phases())
+                self.assertEqual(reopened.timer_model.loop_number, 1)
+                self.assertEqual(reopened.display_style, "modern")
+                self.assertEqual(reopened.position, "bottom_left")
+                reopened.close()
 
     def test_clockwise_gauge_angles_are_elapsed_from_twelve(self):
         self.assertEqual(remaining_arc_angles(1.0), (1440, -5760))
