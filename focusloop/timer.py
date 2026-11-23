@@ -168,15 +168,22 @@ class FocusTimer:
         self._remaining = float(self.current_phase.minutes * 60)
         self._deadline = self._clock(now) + self._remaining
 
-    def configure(self, phases: Sequence[PhaseConfig], *, now: float | None = None) -> None:
-        """Preserve countdown for color/opacity changes, reset for sequence changes."""
+    def configure(
+        self,
+        phases: Sequence[PhaseConfig],
+        *,
+        now: float | None = None,
+        force_restart: bool = False,
+    ) -> None:
+        """Keep time when only display properties or names change.
+
+        A duration/count change or explicit reorder restarts the cycle.
+        """
         new_phases = validate_phases(phases)
-        sequence_changed = [
-            (phase.name, phase.minutes) for phase in self.phases
-        ] != [
-            (phase.name, phase.minutes) for phase in new_phases
+        timing_changed = [phase.minutes for phase in self.phases] != [
+            phase.minutes for phase in new_phases
         ]
         self.phases = new_phases
-        if sequence_changed:
+        if timing_changed or force_restart:
             self.phase_index = 0
             self.restart(now=now)
