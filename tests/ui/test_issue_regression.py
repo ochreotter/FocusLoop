@@ -41,7 +41,7 @@ class IssueIntegrationTests(unittest.TestCase):
         self.assertEqual(len(dialog.cards), 2)
         first = dialog.cards[0]
         self.assertIsInstance(first, PhaseCard)
-        self.assertEqual(first.size.maximum(), 200)
+        self.assertEqual(first.size.maximum(), 300)
         self.assertEqual(first.opacity.maximum(), 100)
         for color in COLOR_HEX:
             index = first.color.findData(color)
