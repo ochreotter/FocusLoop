@@ -304,6 +304,10 @@ def launch_updater(prepared: PreparedUpdate) -> None:
     if not can_self_update() or not prepared.staged_dir.is_dir():
         raise UpdateError("Windows update is not staged correctly")
     log = prepared.helper_script.parent / "updater.log"
+    env = os.environ.copy()
+    # The new frozen executable is an independent process, not a PyInstaller
+    # subprocess of the old bootloader whose bundle path is about to vanish.
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     try:
         subprocess.Popen(
             [
@@ -315,6 +319,7 @@ def launch_updater(prepared: PreparedUpdate) -> None:
                 "-ParentPid", str(os.getpid()),
                 "-LogFile", str(log),
             ],
+            env=env,
             cwd=str(prepared.helper_script.parent),
             close_fds=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
