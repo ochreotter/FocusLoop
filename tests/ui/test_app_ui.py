@@ -347,7 +347,7 @@ class AppRegressionTests(unittest.TestCase):
             [
                 ("作業中", 45, "amber", True, "rose", 50, 30,
                  False, "bottom_left", True, False),
-                ("休憩中", 15, "mint", True, "white", 300, 20,
+                ("休憩中", 15, "mint", False, "white", 300, 20,
                  False, "center", True, False),
             ],
         )
