@@ -83,6 +83,26 @@ class TimerTests(unittest.TestCase):
         timer.skip(now=250)
         self.assertEqual(timer.current_phase.color, "amber")
 
+    def test_name_change_preserves_running_countdown(self):
+        timer = FocusTimer(now=0)
+        renamed = (
+            PhaseConfig("集中中", 45, "white", 90),
+            PhaseConfig("リラックス", 15, "mint", 80),
+        )
+        timer.configure(renamed, now=25)
+        self.assertEqual(timer.phase_index, 0)
+        self.assertEqual(timer.remaining_seconds(now=25), 2675)
+        self.assertEqual(timer.current_phase.name, "集中中")
+
+    def test_forced_reorder_restarts_even_if_durations_match(self):
+        phases = (PhaseConfig("集中", 5), PhaseConfig("休憩", 5, "mint"))
+        timer = FocusTimer(phases, now=0)
+        timer.skip(now=10)
+        timer.configure(phases[::-1], force_restart=True, now=20)
+        self.assertEqual(timer.phase_index, 0)
+        self.assertEqual(timer.current_phase.name, "休憩")
+        self.assertEqual(timer.remaining_seconds(now=20), 300)
+
     def test_configure_while_paused_stays_paused(self):
         timer = FocusTimer(now=0.0)
         timer.pause(now=10.0)
