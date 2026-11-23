@@ -424,6 +424,7 @@ class SettingsDialog(QDialog):
     changed = Signal(object, bool)
     loop_reset = Signal()
     timer_reset = Signal()
+    pause_toggle = Signal()
     initialize_requested = Signal()
 
     def __init__(self, parent, timer: FocusTimer) -> None:
@@ -434,6 +435,10 @@ class SettingsDialog(QDialog):
         self.result_phases: tuple[PhaseConfig, ...] | None = None
         self._rendering = False
         self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
+        self.pause_button = QPushButton(self)
+        self.pause_button.setObjectName("pause_button")
+        self.set_pause_state(timer.paused)
+        self.pause_button.clicked.connect(lambda: self.pause_toggle.emit())
         loop_reset = QPushButton("ループ数をリセット", self)
         loop_reset.clicked.connect(lambda: self.loop_reset.emit())
         timer_reset = QPushButton("現在のフェーズをリセット", self)
@@ -443,6 +448,7 @@ class SettingsDialog(QDialog):
         top.addWidget(self.loop_label)
         top.addWidget(loop_reset)
         top.addStretch()
+        top.addWidget(self.pause_button)
         top.addWidget(timer_reset)
 
         self.cards_container = QWidget(self)
@@ -595,9 +601,13 @@ class SettingsDialog(QDialog):
         self._render_cards([asdict(phase) for phase in phases])
         self.result_phases = phases
         self.set_loop_number(loop_number)
+        self.set_pause_state(False)
 
     def set_loop_number(self, number: int) -> None:
         self.loop_label.setText(f"LOOP {number:02d}")
+
+    def set_pause_state(self, paused: bool) -> None:
+        self.pause_button.setText("再開" if paused else "一時停止")
 
 
 
@@ -687,6 +697,8 @@ class FocusLoopApp:
                 title += " (一時停止)"
             self.status_action.setText(f"{title}  {display}")
             self.pause_action.setText("再開" if self.timer_model.paused else "一時停止")
+            if self.settings_dialog is not None:
+                self.settings_dialog.set_pause_state(self.timer_model.paused)
             self.tray.setToolTip(f"FocusLoop - {title} {display}")
             self.last_display = state
         if switched:
@@ -785,6 +797,7 @@ class FocusLoopApp:
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
         dialog.timer_reset.connect(self.reset)
+        dialog.pause_toggle.connect(self.toggle_pause)
         dialog.initialize_requested.connect(self._initialize_defaults)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
