@@ -101,12 +101,12 @@ def phases_from_json(
     legacy_work: int = 45,
     legacy_break: int = 15,
     legacy_font_size: int | None = None,
-    legacy_position: str = "bottom_left",
+    legacy_position: str | None = None,
     legacy_simple: bool = False,
 ) -> tuple[PhaseConfig, ...]:
     """Migrate old global style/position to each phase when not yet stored there."""
     fallback = tuple(
-        replace(p, simple=legacy_simple, position=legacy_position)
+        replace(p, simple=legacy_simple, position=p.position if legacy_position is None else legacy_position)
         for p in default_phases(legacy_work, legacy_break, legacy_font_size)
     )
     if not isinstance(value, str) or not value:
@@ -126,7 +126,7 @@ def phases_from_json(
                     gradient=row.get("gradient", True),
                     gradient_end=row.get("gradient_end", "violet"),
                     simple=row.get("simple", legacy_simple),
-                    position=row.get("position", legacy_position),
+                    position=row.get("position", "bottom_left" if legacy_position is None else legacy_position),
                     topmost=row.get("topmost", True),
                     hidden=row.get("hidden", False),
                 )
