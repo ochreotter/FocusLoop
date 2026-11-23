@@ -72,6 +72,9 @@ class NotificationPreferenceTests(unittest.TestCase):
         self.controller.skip()
         self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
         self.controller.tray.showMessage.assert_not_called()
+        self.controller.previous()
+        self.assertEqual(self.controller.timer_model.current_phase.name, "作業中")
+        self.controller.tray.showMessage.assert_not_called()
 
         # Simulate automatic phase advance without changing the notification setting.
         with patch.object(self.controller.timer_model, "tick", return_value=True):
@@ -80,6 +83,9 @@ class NotificationPreferenceTests(unittest.TestCase):
 
         dialog.notifications_checkbox.setChecked(True)
         self.assertTrue(self.controller.notifications_enabled)
+        self.controller.previous()
+        self.controller.tray.showMessage.assert_called_once()
+        self.controller.tray.showMessage.reset_mock()
         self.controller.skip()
         self.controller.tray.showMessage.assert_called_once()
         self.controller.tray.showMessage.reset_mock()
