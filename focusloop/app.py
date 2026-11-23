@@ -254,17 +254,24 @@ class SettingsDialog(QDialog):
         opacity_layout.addWidget(opacity_label)
         self.table.setCellWidget(row, 5, opacity_cell)
 
-        delete = QPushButton("削除", self.table)
+        # Use an inner wrapper so the button never fills/overflows its table cell.
+        delete_cell = QWidget(self.table)
+        delete_layout = QHBoxLayout(delete_cell)
+        delete_layout.setContentsMargins(5, 3, 5, 3)
+        delete_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        delete = QPushButton("削除", delete_cell)
         delete.setToolTip("削除（最低1フェーズは必要）")
+        delete.setFixedSize(54, 26)
         delete.setStyleSheet(
-            "QPushButton { background-color: #C62828; color: #FFFFFF; "
-            "border: 1px solid #B71C1C; border-radius: 5px; padding: 5px 10px; "
-            "font-weight: 600; } "
-            "QPushButton:hover { background-color: #D32F2F; } "
-            "QPushButton:pressed { background-color: #8E0000; }"
+            "QPushButton { background-color: #F9EAEC; color: #964650; "
+            "border: 1px solid #DDB9BE; border-radius: 5px; "
+            "padding: 0; font-weight: 500; } "
+            "QPushButton:hover { background-color: #F3DBDF; color: #853942; } "
+            "QPushButton:pressed { background-color: #EBC9CE; }"
         )
         delete.clicked.connect(lambda checked=False, editor=name: self._confirm_delete_row(editor))
-        self.table.setCellWidget(row, 6, delete)
+        delete_layout.addWidget(delete)
+        self.table.setCellWidget(row, 6, delete_cell)
 
         name.textChanged.connect(lambda _text: self._notify_change())
         minutes.valueChanged.connect(lambda _value: self._notify_change())
