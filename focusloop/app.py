@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QGuiApplication, QIcon, QPainter
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from .geometry import tray_menu_position
 from .icons import clock_icon
+from .overlay import DISPLAY_STYLES, Overlay
 from .timer import (
     COLOR_HEX,
     COLOR_PRESETS,
@@ -56,126 +58,46 @@ def _int_setting(settings: QSettings, key: str, default: int, minimum: int, maxi
     return min(max(value, minimum), maximum)
 
 
-class Overlay(QWidget):
-    """Only the countdown digits are painted; mouse input passes through."""
-
-    def __init__(self, position: str, phase: PhaseConfig) -> None:
-        super().__init__()
-        flags = (
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowTransparentForInput
-            | Qt.WindowType.WindowDoesNotAcceptFocus
-        )
-        self.setWindowFlags(flags)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.clock_text = f"{phase.minutes:02d}:00"
-        self.phase_config = phase
-        self._render_font_size = phase.font_size
-        self.position_name = position
-        self._resize_and_reposition()
-
-    def _resize_and_reposition(self) -> None:
-        """Keep large clock digits visible inside the usable screen area."""
-        screen = QGuiApplication.primaryScreen()
-        margin = 24
-        area = screen.availableGeometry() if screen is not None else None
-        max_width = max(1, area.width() - margin * 2) if area else None
-        max_height = max(1, area.height() - margin * 2) if area else None
-
-        size = self.phase_config.font_size
-        while True:
-            font = QFont("Consolas", size)
-            font.setBold(True)
-            metrics = QFontMetrics(font)
-            width = metrics.horizontalAdvance("000:00") + 30
-            height = metrics.height() + 26
-            if (
-                size <= MIN_FONT_SIZE
-                or max_width is None
-                or (width <= max_width and height <= max_height)
-            ):
-                break
-            size -= 1
-
-        self._render_font_size = size
-        self.setFixedSize(
-            min(width, max_width) if max_width is not None else width,
-            min(height, max_height) if max_height is not None else height,
-        )
-        self.reposition()
-        self.update()
-
-    def reposition(self) -> None:
-        screen = QGuiApplication.primaryScreen()
-        if screen is None:
-            return
-        rect = screen.availableGeometry()
-        margin = 24
-        is_right = self.position_name.endswith("right")
-        is_bottom = self.position_name.startswith("bottom")
-        x = rect.right() - self.width() - margin if is_right else rect.left() + margin
-        y = rect.bottom() - self.height() - margin if is_bottom else rect.top() + margin
-        self.move(QPoint(x, y))
-
-    def set_clock(self, text: str, phase: PhaseConfig) -> None:
-        if (text, phase) != (self.clock_text, self.phase_config):
-            needs_resize = phase.font_size != self.phase_config.font_size
-            self.clock_text = text
-            self.phase_config = phase
-            if needs_resize:
-                self._resize_and_reposition()
-            else:
-                self.update()
-
-    def apply_appearance(self, position: str) -> None:
-        self.position_name = position
-        self.reposition()
-        self.update()
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        font = QFont("Consolas", self._render_font_size)
-        font.setBold(True)
-        painter.setFont(font)
-        alpha = round(self.phase_config.opacity * 255 / 100)
-        shadow = QColor(0, 0, 0, round(alpha * 0.65))
-        painter.setPen(shadow)
-        painter.drawText(self.rect().translated(2, 2), Qt.AlignmentFlag.AlignCenter, self.clock_text)
-        foreground = QColor(COLOR_HEX[self.phase_config.color])
-        foreground.setAlpha(alpha)
-        painter.setPen(foreground)
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.clock_text)
-
-
 class SettingsDialog(QDialog):
     """Edit all phases, including order, text color and per-phase opacity."""
 
     changed = Signal(object, bool)
+    loop_reset = Signal()
 
-    def __init__(self, parent, timer: FocusTimer, position: str) -> None:
+    def __init__(self, parent, timer: FocusTimer, position: str, style: str) -> None:
         super().__init__(parent)
         self.setWindowTitle("FocusLoop - 設定")
-        self.setMinimumWidth(760)
+        self.setMinimumWidth(1040)
         self.setMinimumHeight(450)
         self.result_phases: tuple[PhaseConfig, ...] | None = None
-        self._last_emitted_position = position
+        self._last_emitted_appearance = (position, style)
 
         self.position_combo = QComboBox(self)
         for label, value in POSITIONS:
             self.position_combo.addItem(label, value)
         self.position_combo.setCurrentIndex(max(0, self.position_combo.findData(position)))
 
+        self.style_combo = QComboBox(self)
+        for label, value in DISPLAY_STYLES:
+            self.style_combo.addItem(label, value)
+        self.style_combo.setCurrentIndex(max(0, self.style_combo.findData(style)))
+
+        self.loop_label = QLabel(f"LOOP {timer.loop_number:02d}", self)
+        reset_loop_button = QPushButton("ループ数をリセット", self)
+        reset_loop_button.clicked.connect(self._reset_loop)
+
+        loop_row = QHBoxLayout()
+        loop_row.addWidget(self.loop_label)
+        loop_row.addWidget(reset_loop_button)
+        loop_row.addStretch()
+
         form = QFormLayout()
         form.addRow("表示位置", self.position_combo)
+        form.addRow("表示スタイル", self.style_combo)
+        form.addRow("ループ数", loop_row)
 
-        self.table = QTableWidget(0, 6, self)
-        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "文字サイズ", "透過率", "削除"))
+        self.table = QTableWidget(0, 8, self)
+        self.table.setHorizontalHeaderLabels(("フェーズ名", "時間", "文字色", "文字サイズ", "透過率", "グラデーション", "終了色", "削除"))
         handle = self.table.verticalHeader()
         handle.show()
         handle.setFixedWidth(44)
@@ -189,6 +111,8 @@ class SettingsDialog(QDialog):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         self._render_rows([
             {
                 "name": phase.name,
@@ -196,10 +120,13 @@ class SettingsDialog(QDialog):
                 "color": phase.color,
                 "font_size": phase.font_size,
                 "opacity": phase.opacity,
+                "gradient": phase.gradient,
+                "gradient_end": phase.gradient_end,
             }
             for phase in timer.phases
         ])
         self.position_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
+        self.style_combo.currentIndexChanged.connect(lambda _index: self._notify_change())
 
         add_button = QPushButton("＋ フェーズを追加", self)
         add_button.clicked.connect(self._add_phase)
@@ -208,7 +135,7 @@ class SettingsDialog(QDialog):
             "設定は変更と同時に反映・保存されます。"
             "左端の「⠿」をドラッグして順番を変更できます。"
             "フェーズの順番・分数を変更すると、先頭から再スタートします。"
-            "名前・色・透過率・位置・文字サイズの変更では時間をリセットしません。"
+            "名前・色・透過率・表示スタイル・グラデーション・位置・文字サイズの変更では時間をリセットしません。"
             "「閉じる」を押しても設定は保持されます。",
             self,
         )
