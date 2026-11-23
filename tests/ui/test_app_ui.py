@@ -345,6 +345,37 @@ class AppRegressionTests(unittest.TestCase):
             binary = path.read_bytes()
             self.assertEqual(struct.unpack("<HHH", binary[:6]), (0, 1, 7))
 
+    def test_click_through_and_per_phase_opacity_cover_all_drawn_elements(self):
+        overlay = self.controller.overlay
+        overlay.show()
+        self.controller.show_settings()
+        card = self.controller.settings_dialog.cards[0]
+        flags = overlay.windowFlags()
+        self.assertTrue(flags & Qt.WindowType.WindowTransparentForInput)
+        self.assertTrue(flags & Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.assertTrue(flags & Qt.WindowType.FramelessWindowHint)
+        self.assertTrue(overlay.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
+        card.opacity.setValue(37)
+        values = []
+        with patch.object(overlay, "_paint_modern", side_effect=lambda painter: values.append(painter.opacity())):
+            overlay.grab()
+        self.assertTrue(values)
+        self.assertAlmostEqual(values[-1], 0.37, places=2)
+        card.simple.setChecked(True)
+        values.clear()
+        with patch.object(overlay, "_paint_simple", side_effect=lambda painter: values.append(painter.opacity())):
+            overlay.grab()
+        self.assertTrue(values)
+        self.assertAlmostEqual(values[-1], 0.37, places=2)
+
+    def test_automatic_phase_transition_sends_notification(self):
+        self.controller.tray = Mock()
+        with patch.object(self.controller.timer_model, "tick", return_value=True):
+            self.controller.update()
+        self.controller.tray.showMessage.assert_called_once()
+        args = self.controller.tray.showMessage.call_args.args
+        self.assertIn("開始しました", args[1])
+
     def test_remaining_arc_angles_clockwise(self):
         self.assertEqual(remaining_arc_angles(1), (1440, -5760))
         self.assertEqual(remaining_arc_angles(.75), (0, -4320))
