@@ -42,6 +42,7 @@ class PhaseConfig:
     gradient_end: str = "violet"
     simple: bool = False
     position: str = "bottom_left"
+    topmost: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not 1 <= len(self.name.strip()) <= 40:
@@ -62,6 +63,8 @@ class PhaseConfig:
             raise ValueError("simple must be a boolean")
         if self.position not in POSITION_VALUES:
             raise ValueError("unknown phase position")
+        if type(self.topmost) is not bool:
+            raise ValueError("topmost must be a boolean")
 
 
 def default_phases(
@@ -113,6 +116,7 @@ def phases_from_json(
                     gradient_end=row.get("gradient_end", "violet"),
                     simple=row.get("simple", legacy_simple),
                     position=row.get("position", legacy_position),
+                    topmost=row.get("topmost", True),
                 )
                 for row in rows
             ]
