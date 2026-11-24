@@ -165,6 +165,53 @@ class CardSettingsTests(unittest.TestCase):
         self.assertTrue(self.events)
         self.assertTrue(all(restart is False for restart in self.events))
 
+    def test_position_dropdown_order_preserves_saved_identifiers_and_language(self):
+        expected_values = (
+            "top_left", "bottom_left", "top_right", "bottom_right", "center",
+        )
+        expected_ja = ("左上", "左下", "右上", "右下", "中央")
+        expected_en = ("Top left", "Bottom left", "Top right", "Bottom right", "Center")
+
+        for card in self.dialog.cards:
+            combo = card.position
+            self.assertEqual(tuple(combo.itemData(i) for i in range(combo.count())),
+                             expected_values)
+            self.assertEqual(tuple(combo.itemText(i) for i in range(combo.count())),
+                             expected_ja)
+
+        # The default selections must be found by stable identifier, not index:
+        # the first phase moved from index 0 to index 1.
+        self.assertEqual(self.dialog.cards[0].position.currentData(), "bottom_left")
+        self.assertEqual(self.dialog.cards[0].position.currentIndex(), 1)
+        self.assertEqual(self.dialog.cards[1].position.currentData(), "center")
+        self.assertEqual(self.dialog.cards[1].position.currentIndex(), 4)
+        self.assertEqual(self.events, [])
+
+        # After choosing each position, persisted snapshots retain the exact ID.
+        first = self.dialog.cards[0]
+        for i, position in enumerate(expected_values):
+            first.position.setCurrentIndex(i)
+            self.assertEqual(first.snapshot()["position"], position)
+
+        # Switching language rebuilds the phase cards without losing the IDs.
+        self.dialog.language_combo.setCurrentIndex(
+            self.dialog.language_combo.findData("en"))
+        self.assertEqual(tuple(self.dialog.cards[0].position.itemText(i)
+                               for i in range(5)), expected_en)
+        self.assertEqual(self.dialog.cards[0].position.currentData(), "center")
+        self.assertEqual(self.dialog.cards[1].position.currentData(), "center")
+        self.dialog.language_combo.setCurrentIndex(
+            self.dialog.language_combo.findData("ja"))
+        self.assertEqual(tuple(self.dialog.cards[0].position.itemText(i)
+                               for i in range(5)), expected_ja)
+        self.assertEqual(self.dialog.cards[0].position.currentData(), "center")
+
+        # Newly added cards receive the same order, without changing positions.
+        self.dialog._add_phase()
+        self.assertEqual(tuple(self.dialog.cards[-1].position.itemData(i)
+                               for i in range(5)), expected_values)
+        self.assertEqual(self.dialog.cards[-1].position.currentData(), "bottom_left")
+
     def test_update_controls_show_version_without_changing_timer(self):
         version = self.dialog.version_label.text()
         self.assertEqual(version, "1.0.4")
