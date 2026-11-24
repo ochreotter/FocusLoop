@@ -51,10 +51,10 @@ from .timer import (
 )
 
 POSITIONS = (
-    ("左下", "bottom_left"),
-    ("右下", "bottom_right"),
     ("左上", "top_left"),
+    ("左下", "bottom_left"),
     ("右上", "top_right"),
+    ("右下", "bottom_right"),
     ("中央", "center"),
 )
 

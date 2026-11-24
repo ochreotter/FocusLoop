@@ -158,15 +158,63 @@ class CardSettingsTests(unittest.TestCase):
         # Intentional keyboard and direct edits still work as before.
         first.position.setFocus()
         QTest.keyClick(first.position, Qt.Key.Key_Down)
-        self.assertEqual(first.position.currentIndex(), 1)
+        self.assertEqual(first.position.currentIndex(), 2)
+        self.assertEqual(first.position.currentData(), "top_right")
         first.minutes.setValue(50)
         self.assertEqual(first.minutes.value(), 50)
         self.assertTrue(self.events)
         self.assertTrue(all(restart is False for restart in self.events))
 
+    def test_position_dropdown_order_preserves_saved_identifiers_and_language(self):
+        expected_values = (
+            "top_left", "bottom_left", "top_right", "bottom_right", "center",
+        )
+        expected_ja = ("左上", "左下", "右上", "右下", "中央")
+        expected_en = ("Top left", "Bottom left", "Top right", "Bottom right", "Center")
+
+        for card in self.dialog.cards:
+            combo = card.position
+            self.assertEqual(tuple(combo.itemData(i) for i in range(combo.count())),
+                             expected_values)
+            self.assertEqual(tuple(combo.itemText(i) for i in range(combo.count())),
+                             expected_ja)
+
+        # The default selections must be found by stable identifier, not index:
+        # the first phase moved from index 0 to index 1.
+        self.assertEqual(self.dialog.cards[0].position.currentData(), "bottom_left")
+        self.assertEqual(self.dialog.cards[0].position.currentIndex(), 1)
+        self.assertEqual(self.dialog.cards[1].position.currentData(), "center")
+        self.assertEqual(self.dialog.cards[1].position.currentIndex(), 4)
+        self.assertEqual(self.events, [])
+
+        # After choosing each position, persisted snapshots retain the exact ID.
+        first = self.dialog.cards[0]
+        for i, position in enumerate(expected_values):
+            first.position.setCurrentIndex(i)
+            self.assertEqual(first.snapshot()["position"], position)
+
+        # Switching language rebuilds the phase cards without losing the IDs.
+        self.dialog.language_combo.setCurrentIndex(
+            self.dialog.language_combo.findData("en"))
+        self.assertEqual(tuple(self.dialog.cards[0].position.itemText(i)
+                               for i in range(5)), expected_en)
+        self.assertEqual(self.dialog.cards[0].position.currentData(), "center")
+        self.assertEqual(self.dialog.cards[1].position.currentData(), "center")
+        self.dialog.language_combo.setCurrentIndex(
+            self.dialog.language_combo.findData("ja"))
+        self.assertEqual(tuple(self.dialog.cards[0].position.itemText(i)
+                               for i in range(5)), expected_ja)
+        self.assertEqual(self.dialog.cards[0].position.currentData(), "center")
+
+        # Newly added cards receive the same order, without changing positions.
+        self.dialog._add_phase()
+        self.assertEqual(tuple(self.dialog.cards[-1].position.itemData(i)
+                               for i in range(5)), expected_values)
+        self.assertEqual(self.dialog.cards[-1].position.currentData(), "bottom_left")
+
     def test_update_controls_show_version_without_changing_timer(self):
         version = self.dialog.version_label.text()
-        self.assertEqual(version, "1.0.3")
+        self.assertEqual(version, "1.0.4")
         self.assertEqual(self.dialog.update_button.text(), "更新を確認")
         self.assertTrue(self.dialog.update_button.isEnabled())
         phases = [card.snapshot() for card in self.dialog.cards]
@@ -573,7 +621,7 @@ class AppRegressionTests(unittest.TestCase):
     def test_japanese_update_dialogs_use_polite_messages(self):
         self.controller.show_settings()
         self.assertEqual(self.controller.language, "ja")
-        release = Mock(version="1.0.4")
+        release = Mock(version="1.0.5")
 
         with patch.object(QMessageBox, "warning") as warning:
             self.controller._on_update_checked(None, "network error")
@@ -588,7 +636,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = info.call_args.args[2]
-            self.assertIn("新しいバージョン 1.0.4 を利用できます。", message)
+            self.assertIn("新しいバージョン 1.0.5 を利用できます。", message)
             self.assertIn("Windows配布版のみ対応しています。", message)
 
         with (
@@ -598,7 +646,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = question.call_args.args[2]
-            self.assertIn("1.0.4 に更新しますか？", message)
+            self.assertIn("1.0.5 に更新しますか？", message)
             self.assertIn("自動的に再起動します。", message)
 
         with patch.object(QMessageBox, "warning") as warning:
