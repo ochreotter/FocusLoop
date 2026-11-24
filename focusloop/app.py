@@ -499,7 +499,7 @@ class SettingsDialog(QDialog):
         language_row = QHBoxLayout()
         language_row.addWidget(self.language_label)
         language_row.addWidget(self.language_combo)
-         language_row.addStretch()
+        language_row.addStretch()
         self.version_label = QLabel(updates.VERSION, self)
         self.version_label.setObjectName("version_label")
         language_row.addWidget(self.version_label)
@@ -742,7 +742,7 @@ class SettingsDialog(QDialog):
     def set_loop_number(self, number: int) -> None:
         self.loop_label.setText(f"LOOP {number:02d}")
 
-     def set_pause_state(self, paused: bool) -> None:
+    def set_pause_state(self, paused: bool) -> None:
         self._paused = paused
         self.pause_button.setText(tr("再開" if paused else "一時停止", self.language))
 
