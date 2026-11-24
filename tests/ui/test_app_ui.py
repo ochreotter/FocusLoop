@@ -158,7 +158,8 @@ class CardSettingsTests(unittest.TestCase):
         # Intentional keyboard and direct edits still work as before.
         first.position.setFocus()
         QTest.keyClick(first.position, Qt.Key.Key_Down)
-        self.assertEqual(first.position.currentIndex(), 1)
+        self.assertEqual(first.position.currentIndex(), 2)
+        self.assertEqual(first.position.currentData(), "top_right")
         first.minutes.setValue(50)
         self.assertEqual(first.minutes.value(), 50)
         self.assertTrue(self.events)
@@ -166,7 +167,7 @@ class CardSettingsTests(unittest.TestCase):
 
     def test_update_controls_show_version_without_changing_timer(self):
         version = self.dialog.version_label.text()
-        self.assertEqual(version, "1.0.3")
+        self.assertEqual(version, "1.0.4")
         self.assertEqual(self.dialog.update_button.text(), "更新を確認")
         self.assertTrue(self.dialog.update_button.isEnabled())
         phases = [card.snapshot() for card in self.dialog.cards]
@@ -573,7 +574,7 @@ class AppRegressionTests(unittest.TestCase):
     def test_japanese_update_dialogs_use_polite_messages(self):
         self.controller.show_settings()
         self.assertEqual(self.controller.language, "ja")
-        release = Mock(version="1.0.4")
+        release = Mock(version="1.0.5")
 
         with patch.object(QMessageBox, "warning") as warning:
             self.controller._on_update_checked(None, "network error")
@@ -588,7 +589,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = info.call_args.args[2]
-            self.assertIn("新しいバージョン 1.0.4 を利用できます。", message)
+            self.assertIn("新しいバージョン 1.0.5 を利用できます。", message)
             self.assertIn("Windows配布版のみ対応しています。", message)
 
         with (
@@ -598,7 +599,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = question.call_args.args[2]
-            self.assertIn("1.0.4 に更新しますか？", message)
+            self.assertIn("1.0.5 に更新しますか？", message)
             self.assertIn("自動的に再起動します。", message)
 
         with patch.object(QMessageBox, "warning") as warning:
