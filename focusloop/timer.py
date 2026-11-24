@@ -44,6 +44,7 @@ class PhaseConfig:
     position: str = "bottom_left"
     topmost: bool = True
     hidden: bool = False
+    notify: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not 1 <= len(self.name.strip()) <= 40:
@@ -68,6 +69,8 @@ class PhaseConfig:
             raise ValueError("topmost must be a boolean")
         if type(self.hidden) is not bool:
             raise ValueError("hidden must be a boolean")
+        if type(self.notify) is not bool:
+            raise ValueError("notify must be a boolean")
 
 
 def default_phases(
@@ -103,10 +106,12 @@ def phases_from_json(
     legacy_font_size: int | None = None,
     legacy_position: str | None = None,
     legacy_simple: bool = False,
+    legacy_notify: bool = True,
 ) -> tuple[PhaseConfig, ...]:
-    """Migrate old global style/position to each phase when not yet stored there."""
+    """Migrate legacy global display and notification preferences per phase."""
     fallback = tuple(
-        replace(p, simple=legacy_simple, position=p.position if legacy_position is None else legacy_position)
+        replace(p, simple=legacy_simple, position=p.position if legacy_position is None else legacy_position,
+                notify=legacy_notify)
         for p in default_phases(legacy_work, legacy_break, legacy_font_size)
     )
     if not isinstance(value, str) or not value:
@@ -129,6 +134,7 @@ def phases_from_json(
                     position=row.get("position", "bottom_left" if legacy_position is None else legacy_position),
                     topmost=row.get("topmost", True),
                     hidden=row.get("hidden", False),
+                    notify=row.get("notify", legacy_notify),
                 )
                 for row in rows
             ]
