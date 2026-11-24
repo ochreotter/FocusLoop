@@ -1,15 +1,18 @@
-"""Offscreen regression tests for the global system-tray notification toggle."""
+"""Windows/Qt regressions for per-phase system-tray notifications."""
 
+from __future__ import annotations
+
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication
 
 from focusloop.app import FocusLoopApp
-from focusloop.timer import default_phases
+from focusloop.timer import default_phases, phases_to_json
 
 
 class NotificationPreferenceTests(unittest.TestCase):
@@ -33,113 +36,158 @@ class NotificationPreferenceTests(unittest.TestCase):
         self.temp.cleanup()
         self.qt_app.processEvents()
 
-    def test_notification_checkbox_is_directly_after_language_not_at_far_right(self):
+    def test_notification_checkbox_is_per_phase_not_global(self):
         self.controller.show_settings()
         dialog = self.controller.settings_dialog
         row = dialog.layout().itemAt(0).layout()
-
         self.assertIs(row.itemAt(0).widget(), dialog.language_label)
         self.assertIs(row.itemAt(1).widget(), dialog.language_combo)
-        self.assertIs(row.itemAt(2).widget(), dialog.notifications_checkbox)
-        self.assertIsNotNone(row.itemAt(3).spacerItem())
-        self.assertIs(row.itemAt(4).widget(), dialog.version_label)
-        self.assertIs(row.itemAt(5).widget(), dialog.update_button)
-        self.assertEqual(row.count(), 6)
-        self.assertEqual(dialog.notifications_checkbox.text(), "通知する")
-        self.assertEqual(dialog.notifications_checkbox.objectName(), "notifications_checkbox")
-        self.assertTrue(dialog.notifications_checkbox.isChecked())
-        self.assertTrue(self.controller.notifications_enabled)
+        self.assertIsNotNone(row.itemAt(2).spacerItem())
+        self.assertIs(row.itemAt(3).widget(), dialog.version_label)
+        self.assertIs(row.itemAt(4).widget(), dialog.update_button)
+        self.assertEqual(row.count(), 5)
+        self.assertFalse(hasattr(dialog, "notifications_checkbox"))
+        self.assertEqual(len(dialog.cards), 2)
+        for card in dialog.cards:
+            self.assertTrue(card.notify.isChecked())
+            self.assertEqual(card.notify.text(), "通知する")
+            self.assertEqual(card.notify.objectName(), "phase_notifications_checkbox")
+            self.assertEqual(card.notify.focusPolicy(), Qt.FocusPolicy.ClickFocus)
 
-        # Geometry check: close to the language combobox, not pushed to the far right.
-        right_of_language = dialog.language_combo.geometry().right()
-        left_of_checkbox = dialog.notifications_checkbox.geometry().left()
-        self.assertGreaterEqual(left_of_checkbox, right_of_language)
-        self.assertLessEqual(left_of_checkbox - right_of_language, 24)
-
-    def test_disabling_notifications_suppresses_manual_and_automatic_changes(self):
+    def test_disabled_phase_suppresses_manual_and_automatic_notification_only_for_that_phase(self):
         self.controller.show_settings()
         dialog = self.controller.settings_dialog
         self.controller.tray = Mock()
-        phases_before = self.controller.timer_model.phases
-        time_before = self.controller.timer_model.remaining_seconds()
-        loop_before = self.controller.timer_model.loop_number
+        remaining = self.controller.timer_model.remaining_seconds()
+        original_loop = self.controller.timer_model.loop_number
+        dialog.cards[0].notify.setChecked(False)
+        self.assertEqual([p.notify for p in self.controller.timer_model.phases], [False, True])
+        self.assertEqual(self.controller.timer_model.phase_index, 0)
+        self.assertEqual(self.controller.timer_model.loop_number, original_loop)
+        self.assertLessEqual(abs(self.controller.timer_model.remaining_seconds() - remaining), 1)
+        self.assertFalse(self.controller.settings.contains("notifications_enabled"))
 
-        dialog.notifications_checkbox.setChecked(False)
-        self.assertFalse(self.controller.notifications_enabled)
-        self.assertFalse(self.controller.settings.value("notifications_enabled", type=bool))
-        self.assertEqual(phases_before, self.controller.timer_model.phases)
-        self.assertLessEqual(abs(time_before - self.controller.timer_model.remaining_seconds()), 1)
-        self.assertEqual(loop_before, self.controller.timer_model.loop_number)
-
+        # Work -> Break: enabled phase sends a notification.
         self.controller.skip()
         self.assertEqual(self.controller.timer_model.current_phase.name, "休憩中")
-        self.controller.tray.showMessage.assert_not_called()
-        self.controller.previous()
+        self.controller.tray.showMessage.assert_called_once()
+        self.controller.tray.showMessage.reset_mock()
+
+        # Break -> Work: this phase's notification is disabled.
+        self.controller.skip()
         self.assertEqual(self.controller.timer_model.current_phase.name, "作業中")
         self.controller.tray.showMessage.assert_not_called()
 
-        # Simulate automatic phase advance without changing the notification setting.
+        # Automatic advance checks the phase that is entered.
         with patch.object(self.controller.timer_model, "tick", return_value=True):
             self.controller.update()
         self.controller.tray.showMessage.assert_not_called()
 
-        dialog.notifications_checkbox.setChecked(True)
-        self.assertTrue(self.controller.notifications_enabled)
-        self.controller.previous()
-        self.controller.tray.showMessage.assert_called_once()
-        self.controller.tray.showMessage.reset_mock()
-        self.controller.skip()
-        self.controller.tray.showMessage.assert_called_once()
-        self.controller.tray.showMessage.reset_mock()
+        self.controller.timer_model.skip()  # Break, without controller notification.
         with patch.object(self.controller.timer_model, "tick", return_value=True):
             self.controller.update()
         self.controller.tray.showMessage.assert_called_once()
+        self.controller.tray.showMessage.reset_mock()
 
-    def test_language_switch_keeps_checkbox_state_and_translates_label(self):
+        # Previous phase also uses the destination phase's notification flag.
+        self.controller.previous()
+        self.controller.tray.showMessage.assert_not_called()
+
+        # Re-enable Work without restarting the timer.
+        dialog.cards[0].notify.setChecked(True)
+        self.controller.previous()  # Break.
+        self.controller.tray.showMessage.assert_called_once()
+        self.controller.tray.showMessage.reset_mock()
+        self.controller.skip()  # Work.
+        self.controller.tray.showMessage.assert_called_once()
+
+    def test_language_and_dynamic_cards_preserve_each_notification_flag(self):
         self.controller.show_settings()
         dialog = self.controller.settings_dialog
-        dialog.notifications_checkbox.setChecked(False)
-        before = self.controller.timer_model.remaining_seconds()
-        phases = self.controller.timer_model.phases
+        dialog.cards[0].notify.setChecked(False)
+        dialog.cards[1].notify.setChecked(True)
+        saved = [card.snapshot()["notify"] for card in dialog.cards]
+        remaining = self.controller.timer_model.remaining_seconds()
 
         dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("en"))
-        self.assertEqual(dialog.notifications_checkbox.text(), "Notifications")
-        self.assertFalse(dialog.notifications_checkbox.isChecked())
-        self.assertFalse(self.controller.notifications_enabled)
-        self.assertEqual(self.controller.timer_model.phases, phases)
-        self.assertLessEqual(abs(before - self.controller.timer_model.remaining_seconds()), 1)
+        self.assertEqual([card.notify.isChecked() for card in dialog.cards], saved)
+        self.assertEqual(dialog.cards[0].notify.text(), "Notify on start")
+        self.assertIn("Notifications off", dialog.cards[0].summary.text())
+        self.assertLessEqual(abs(self.controller.timer_model.remaining_seconds() - remaining), 1)
+
+        dialog._add_phase()
+        self.assertEqual([card.notify.isChecked() for card in dialog.cards], [False, True, True])
+        dialog._shift_card(dialog.cards[-1], -1)
+        self.assertEqual([card.notify.isChecked() for card in dialog.cards], [False, True, True])
+
+        with patch("focusloop.app.confirm_change", return_value=True):
+            dialog._confirm_delete_card(dialog.cards[1])
+        self.assertEqual([card.notify.isChecked() for card in dialog.cards], [False, True])
 
         dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("ja"))
-        self.assertEqual(dialog.notifications_checkbox.text(), "通知する")
-        self.assertFalse(dialog.notifications_checkbox.isChecked())
+        self.assertEqual(dialog.cards[0].notify.text(), "通知する")
+        self.assertEqual([card.notify.isChecked() for card in dialog.cards], [False, True])
 
-    def test_preference_is_persisted_and_settings_reset_restores_on(self):
+    def test_existing_global_off_preference_migrates_all_old_phases_and_is_saved(self):
+        self.controller.close()
+        settings = QSettings(self.ini, QSettings.Format.IniFormat)
+        old_rows = json.loads(phases_to_json(default_phases()))
+        for row in old_rows:
+            row.pop("notify")
+        settings.setValue("notifications_enabled", False)
+        settings.setValue("phases_json", json.dumps(old_rows, ensure_ascii=False))
+        settings.sync()
+
+        self.controller = FocusLoopApp(self.qt_app)
+        self.assertEqual([phase.notify for phase in self.controller.timer_model.phases], [False, False])
+        self.assertFalse(self.controller.settings.contains("notifications_enabled"))
+        migrated = json.loads(self.controller.settings.value("phases_json"))
+        self.assertEqual([row["notify"] for row in migrated], [False, False])
+
         self.controller.show_settings()
         dialog = self.controller.settings_dialog
-        dialog.notifications_checkbox.setChecked(False)
-        dialog.language_combo.setCurrentIndex(dialog.language_combo.findData("en"))
-        self.controller.settings.sync()
+        self.assertEqual([card.notify.isChecked() for card in dialog.cards], [False, False])
+        self.controller.tray = Mock()
+        self.controller.skip()
+        self.controller.tray.showMessage.assert_not_called()
+        dialog.cards[1].notify.setChecked(True)
+        self.assertEqual([phase.notify for phase in self.controller.timer_model.phases], [False, True])
 
+        # A subsequent restart must not re-apply the deleted global preference.
         restarted = FocusLoopApp(self.qt_app)
-        self.assertFalse(restarted.notifications_enabled)
-        self.assertEqual(restarted.language, "en")
-        restarted.show_settings()
-        self.assertEqual(restarted.settings_dialog.notifications_checkbox.text(),
-                         "Notifications")
-        self.assertFalse(restarted.settings_dialog.notifications_checkbox.isChecked())
-        restarted.close()
+        try:
+            self.assertEqual([p.notify for p in restarted.timer_model.phases], [False, True])
+        finally:
+            restarted.close()
 
+    def test_legacy_global_true_and_new_phase_override(self):
+        self.controller.close()
+        settings = QSettings(self.ini, QSettings.Format.IniFormat)
+        old_rows = json.loads(phases_to_json(default_phases()))
+        old_rows[0].pop("notify")
+        old_rows[1]["notify"] = False
+        settings.setValue("notifications_enabled", True)
+        settings.setValue("phases_json", json.dumps(old_rows, ensure_ascii=False))
+        settings.sync()
+        self.controller = FocusLoopApp(self.qt_app)
+        self.assertEqual([phase.notify for phase in self.controller.timer_model.phases], [True, False])
+        self.assertFalse(self.controller.settings.contains("notifications_enabled"))
+
+    def test_reset_restores_notifications_on_for_every_phase(self):
+        self.controller.show_settings()
+        dialog = self.controller.settings_dialog
+        dialog.cards[0].notify.setChecked(False)
+        dialog.cards[1].notify.setChecked(False)
         self.controller._initialize_defaults()
-        self.assertTrue(self.controller.notifications_enabled)
-        self.assertTrue(dialog.notifications_checkbox.isChecked())
-        self.assertTrue(self.controller.settings.value("notifications_enabled", type=bool))
-        self.assertEqual(self.controller.language, "en")
+        self.assertTrue(all(phase.notify for phase in self.controller.timer_model.phases))
+        self.assertTrue(all(card.notify.isChecked() for card in dialog.cards))
         self.assertEqual(self.controller.timer_model.phases, default_phases())
-
-        reopened = FocusLoopApp(self.qt_app)
-        self.assertTrue(reopened.notifications_enabled)
-        self.assertEqual(reopened.language, "en")
-        reopened.close()
+        self.assertFalse(self.controller.settings.contains("notifications_enabled"))
+        restarted = FocusLoopApp(self.qt_app)
+        try:
+            self.assertTrue(all(p.notify for p in restarted.timer_model.phases))
+        finally:
+            restarted.close()
 
 
 if __name__ == "__main__":
