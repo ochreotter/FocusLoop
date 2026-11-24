@@ -330,6 +330,12 @@ class PhaseCard(QFrame):
         self.position.setCurrentIndex(max(0, self.position.findData(values["position"])))
         field(4, 0, "表示位置", self.position)
 
+        self.notify = QCheckBox(tr("通知する", owner.language), self.body)
+        self.notify.setObjectName("phase_notifications_checkbox")
+        self.notify.setToolTip(tr("このフェーズの開始時に通知します。", owner.language))
+        self.notify.setChecked(bool(values["notify"]))
+        field(4, 1, "通知", self.notify)
+
         delete_area = QWidget(self.body)
         delete_layout = QHBoxLayout(delete_area)
         delete_layout.setContentsMargins(0, 0, 0, 0)
@@ -346,14 +352,14 @@ class PhaseCard(QFrame):
         self.delete_button.setToolTip(tr("フェーズを削除します。確認画面が表示されます。", owner.language))
         self.delete_button.clicked.connect(lambda: owner._confirm_delete_card(self))
         delete_layout.addWidget(self.delete_button)
-        fields.addWidget(delete_area, 4, 1)
+        fields.addWidget(delete_area, 5, 1)
 
         # Keep editing with the mouse and typing after a click, but let Tab
         # navigate between phase headers and the dialog's main controls only.
         for control in (
             self.name, self.minutes, self.color, self.gradient,
             self.gradient_end, self.size, self.opacity, self.simple,
-            self.topmost, self.hidden, self.position, self.delete_button,
+            self.topmost, self.hidden, self.position, self.notify, self.delete_button,
         ):
             control.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
@@ -369,7 +375,7 @@ class PhaseCard(QFrame):
         for widget in (
             self.name, self.minutes, self.color, self.gradient, self.gradient_end,
             self.size, self.opacity, self.simple, self.position, self.topmost,
-            self.hidden,
+            self.hidden, self.notify,
         ):
             if isinstance(widget, QLineEdit):
                 widget.textChanged.connect(self._changed)
@@ -398,6 +404,7 @@ class PhaseCard(QFrame):
             "position": self.position.currentData(),
             "topmost": self.topmost.isChecked(),
             "hidden": self.hidden.isChecked(),
+            "notify": self.notify.isChecked(),
         }
 
     def _refresh_summary(self) -> None:
@@ -412,10 +419,11 @@ class PhaseCard(QFrame):
         mode = "Simple" if self.simple.isChecked() else tr("標準", self.owner.language)
         front = tr("最前面ON" if self.topmost.isChecked() else "最前面OFF", self.owner.language)
         visibility = f" · {tr('非表示', self.owner.language)}" if self.hidden.isChecked() else ""
+        notification = f" · {tr('通知OFF', self.owner.language)}" if not self.notify.isChecked() else ""
         self.summary.setText(
             f"{self.minutes.value()}{tr(' 分', self.owner.language).strip() if self.owner.language == 'ja' else ' min'} · {main}{secondary} · "
             f"{mode} · {positions.get(self.position.currentData(), '?')} · "
-            f"{front}{visibility}"
+            f"{front}{visibility}{notification}"
         )
 
     def _changed(self, *_args) -> None:
@@ -468,12 +476,10 @@ class SettingsDialog(QDialog):
     pause_toggle = Signal()
     initialize_requested = Signal()
     language_changed = Signal(str)
-    notifications_changed = Signal(bool)
     update_requested = Signal()
 
     def __init__(
         self, parent, timer: FocusTimer, language: str = "ja",
-        notifications_enabled: bool = True,
     ) -> None:
         super().__init__(parent)
         self.language = language if language in LANGUAGES else "ja"
@@ -493,12 +499,7 @@ class SettingsDialog(QDialog):
         language_row = QHBoxLayout()
         language_row.addWidget(self.language_label)
         language_row.addWidget(self.language_combo)
-        self.notifications_checkbox = QCheckBox(tr("通知する", self.language), self)
-        self.notifications_checkbox.setObjectName("notifications_checkbox")
-        self.notifications_checkbox.setChecked(notifications_enabled)
-        self.notifications_checkbox.toggled.connect(self.notifications_changed.emit)
-        language_row.addWidget(self.notifications_checkbox)
-        language_row.addStretch()
+         language_row.addStretch()
         self.version_label = QLabel(updates.VERSION, self)
         self.version_label.setObjectName("version_label")
         language_row.addWidget(self.version_label)
@@ -595,7 +596,6 @@ class SettingsDialog(QDialog):
         """
         controls = [
             self.language_combo,
-            self.notifications_checkbox,
             self.update_button,
         ]
         for card in self.cards:
@@ -742,16 +742,7 @@ class SettingsDialog(QDialog):
     def set_loop_number(self, number: int) -> None:
         self.loop_label.setText(f"LOOP {number:02d}")
 
-    def set_notifications_enabled(self, enabled: bool) -> None:
-        """Refresh the checkbox without issuing another settings change."""
-        if self.notifications_checkbox.isChecked() != enabled:
-            self.notifications_checkbox.blockSignals(True)
-            try:
-                self.notifications_checkbox.setChecked(enabled)
-            finally:
-                self.notifications_checkbox.blockSignals(False)
-
-    def set_pause_state(self, paused: bool) -> None:
+     def set_pause_state(self, paused: bool) -> None:
         self._paused = paused
         self.pause_button.setText(tr("再開" if paused else "一時停止", self.language))
 
@@ -764,7 +755,6 @@ class SettingsDialog(QDialog):
         self.language = language
         self.setWindowTitle(f"FocusLoop - {tr('設定', language)}")
         self.language_label.setText(tr("言語", language))
-        self.notifications_checkbox.setText(tr("通知する", language))
         if self.update_button.isEnabled():
             self.update_button.setText(tr("更新を確認", language))
         self.loop_reset_button.setText(tr("ループ数をリセット", language))
@@ -798,7 +788,9 @@ class FocusLoopApp(QObject):
         self.update_prepared.connect(self._on_update_prepared)
         stored_language = str(self.settings.value("language", "ja"))
         self.language = stored_language if stored_language in LANGUAGES else "ja"
-        self.notifications_enabled = self.settings.value(
+        # 1.0.2 and earlier stored one global flag. Apply it to every
+        # legacy phase only when that phase has no explicit notify setting.
+        legacy_notify = self.settings.value(
             "notifications_enabled", True, type=bool
         )
         old_work = _int_setting(self.settings, "work_minutes", 45, 1, 240)
@@ -821,7 +813,13 @@ class FocusLoopApp(QObject):
             legacy_font_size=legacy_font_size,
             legacy_position=old_position,
             legacy_simple=(old_style == "simple"),
+            legacy_notify=legacy_notify,
         )
+        if self.settings.contains("notifications_enabled"):
+            # Persist the migrated phase flags before dropping the legacy key.
+            self.settings.setValue("phases_json", phases_to_json(phases))
+            self.settings.remove("notifications_enabled")
+            self.settings.sync()
         loop_number = _int_setting(self.settings, "loop_number", 1, 1, 2_147_483_647)
 
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
@@ -957,22 +955,19 @@ class FocusLoopApp(QObject):
         # Clear the old compatibility keys too so they cannot reappear later.
         self.settings.clear()
         self.settings.setValue("language", self.language)
-        self.notifications_enabled = True
-        self.settings.setValue("notifications_enabled", self.notifications_enabled)
         self.settings.setValue("phases_json", phases_to_json(phases))
         self.settings.setValue("loop_number", 1)
         self.settings.sync()
 
         if self.settings_dialog is not None:
             self.settings_dialog.restore_defaults(phases, 1)
-            self.settings_dialog.set_notifications_enabled(self.notifications_enabled)
         self.update()
 
     def _notify_phase_change(self) -> None:
         """Send a Windows system-tray notification at each phase transition."""
-        if not self.notifications_enabled:
-            return
         phase = self.timer_model.current_phase
+        if not phase.notify:
+            return
         name = phase.name
         message = (
             f'Started "{name}" ({phase.minutes} min).'
@@ -1038,9 +1033,7 @@ class FocusLoopApp(QObject):
             self.settings_dialog.activateWindow()
             return
 
-        dialog = SettingsDialog(
-            None, self.timer_model, self.language, self.notifications_enabled
-        )
+        dialog = SettingsDialog(None, self.timer_model, self.language)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.changed.connect(self._apply_settings)
         dialog.loop_reset.connect(self._reset_loop_count)
@@ -1050,7 +1043,6 @@ class FocusLoopApp(QObject):
         dialog.pause_toggle.connect(self.toggle_pause)
         dialog.initialize_requested.connect(self._initialize_defaults)
         dialog.language_changed.connect(self._set_language)
-        dialog.notifications_changed.connect(self._set_notifications_enabled)
         dialog.update_requested.connect(self.check_for_updates)
         dialog.finished.connect(self._settings_closed)
         self.settings_dialog = dialog
@@ -1169,13 +1161,6 @@ class FocusLoopApp(QObject):
             return
         self.settings.sync()
         self.close()
-
-    def _set_notifications_enabled(self, enabled: bool) -> None:
-        if enabled == self.notifications_enabled:
-            return
-        self.notifications_enabled = enabled
-        self.settings.setValue("notifications_enabled", enabled)
-        self.settings.sync()
 
     def _set_language(self, language: str) -> None:
         if language not in LANGUAGES or language == self.language:
