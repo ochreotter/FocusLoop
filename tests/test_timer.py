@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from dataclasses import replace
 
 from focusloop.timer import (
     COLOR_HEX,
@@ -437,6 +438,47 @@ class TimerTests(unittest.TestCase):
         self.assertEqual(timer.remaining_seconds(now=0), 300)
         timer.skip(now=10)
         self.assertEqual(timer.current_phase.name, "作業")
+
+
+    def test_per_phase_notifications_roundtrip_migration_and_validation(self):
+        phases = default_phases()
+        self.assertEqual([phase.notify for phase in phases], [True, True])
+        custom = (replace(phases[0], notify=False), phases[1])
+        self.assertEqual(phases_from_json(phases_to_json(custom)), custom)
+        self.assertFalse(json.loads(phases_to_json(custom))[0]["notify"])
+
+        # Old 1.0.2 phase JSON carried no notify flag. Import the global value
+        # for every missing phase, but never override an explicit new phase flag.
+        old_rows = json.loads(phases_to_json(phases))
+        for row in old_rows:
+            row.pop("notify")
+        self.assertEqual(
+            [p.notify for p in phases_from_json(json.dumps(old_rows), legacy_notify=False)],
+            [False, False],
+        )
+        self.assertEqual(
+            [p.notify for p in phases_from_json(None, legacy_notify=False)],
+            [False, False],
+        )
+        old_rows[1]["notify"] = True
+        self.assertEqual(
+            [p.notify for p in phases_from_json(json.dumps(old_rows), legacy_notify=False)],
+            [False, True],
+        )
+        for invalid in ("false", 0, 1, None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                PhaseConfig("Invalid", 5, notify=invalid)
+
+    def test_notification_toggle_does_not_reset_countdown(self):
+        timer = FocusTimer(now=0.0)
+        timer.skip(now=100)
+        self.assertEqual(timer.phase_index, 1)
+        phases = list(timer.phases)
+        phases[1] = replace(phases[1], notify=False)
+        timer.configure(phases, now=120)
+        self.assertEqual(timer.phase_index, 1)
+        self.assertFalse(timer.current_phase.notify)
+        self.assertEqual(timer.remaining_seconds(now=120), 880)
 
 
 if __name__ == "__main__":
