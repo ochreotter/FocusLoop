@@ -189,6 +189,8 @@ class PhaseCard(QFrame):
         header.setContentsMargins(12, 10, 12, 10)
         header.setSpacing(9)
         self.drag_handle = PhaseDragHandle(self)
+        # Dragging remains mouse-operated and is not part of the Tab sequence.
+        self.drag_handle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.title = QLabel(self.header_widget)
         self.title.setTextFormat(Qt.TextFormat.PlainText)
         self.title.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
@@ -216,6 +218,8 @@ class PhaseCard(QFrame):
         self.expand_button.setAccessibleName(tr("フェーズ設定の開閉", owner.language))
         self.expand_button.setFixedSize(32, 32)
         self.expand_button.setCheckable(True)
+        for control in (self.move_up, self.move_down, self.expand_button):
+            control.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.expand_button.toggled.connect(self._toggle_expanded)
         self.move_up.clicked.connect(lambda: owner._shift_card(self, -1))
         self.move_down.clicked.connect(lambda: owner._shift_card(self, 1))
@@ -344,6 +348,14 @@ class PhaseCard(QFrame):
         delete_layout.addWidget(self.delete_button)
         fields.addWidget(delete_area, 4, 1)
 
+        # Keep editing with the mouse and typing after a click, but let Tab
+        # navigate between phase headers and the dialog's main controls only.
+        for control in (
+            self.name, self.minutes, self.color, self.gradient,
+            self.gradient_end, self.size, self.opacity, self.simple,
+            self.topmost, self.hidden, self.position, self.delete_button,
+        ):
+            control.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
         outer.addWidget(self.body)
         self.body.hide()
@@ -413,6 +425,8 @@ class PhaseCard(QFrame):
     def _toggle_expanded(self, enabled: bool) -> None:
         self.body.setVisible(enabled)
         self.expand_button.setText("∧" if enabled else "∨")
+        if hasattr(self.owner, "close_button"):
+            self.owner._set_tab_order()
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
         # Limit toggling to header text/background; inputs remain independent.
@@ -519,6 +533,7 @@ class SettingsDialog(QDialog):
         self.cards_layout.addStretch()
         self.cards: list[PhaseCard] = []
         self.scroll = QScrollArea(self)
+        self.scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.setWidget(self.cards_container)
@@ -570,6 +585,35 @@ class SettingsDialog(QDialog):
         layout.addWidget(note)
         layout.addLayout(footer)
         self._set_button_cursors()
+        self._set_tab_order()
+
+    def _set_tab_order(self) -> None:
+        """Follow the visible top → phase headers → footer sequence.
+
+        Reapply after cards are rebuilt or reordered. Qt automatically skips
+        hidden or disabled controls; phase-body editors use ClickFocus.
+        """
+        controls = [
+            self.language_combo,
+            self.notifications_checkbox,
+            self.update_button,
+        ]
+        for card in self.cards:
+            controls.extend((card.move_up, card.move_down, card.expand_button))
+        controls.extend((
+            self.add_button,
+            self.pause_button,
+            self.previous_button,
+            self.skip_button,
+            self.timer_reset_button,
+            self.loop_reset_button,
+            self.initialize_button,
+            self.close_button,
+        ))
+        for control in controls:
+            control.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        for current, following in zip(controls, controls[1:]):
+            QWidget.setTabOrder(current, following)
 
     def set_update_status(self, busy: bool, text: str | None = None) -> None:
         self.update_button.setEnabled(not busy)
@@ -601,6 +645,8 @@ class SettingsDialog(QDialog):
         finally:
             self._rendering = False
             self._set_button_cursors()
+            if hasattr(self, "close_button"):
+                self._set_tab_order()
 
     def _set_button_cursors(self) -> None:
         for button in self.findChildren(QAbstractButton):
@@ -620,6 +666,7 @@ class SettingsDialog(QDialog):
         self.cards_layout.removeWidget(source)
         self.cards_layout.insertWidget(self.cards.index(source), source)
         self._update_move_buttons()
+        self._set_tab_order()
         self._notify_change(force_restart=True)
 
     def _shift_card(self, card: PhaseCard, offset: int) -> None:

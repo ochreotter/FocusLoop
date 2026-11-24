@@ -166,7 +166,7 @@ class CardSettingsTests(unittest.TestCase):
 
     def test_update_controls_show_version_without_changing_timer(self):
         version = self.dialog.version_label.text()
-        self.assertEqual(version, "1.0.1")
+        self.assertEqual(version, "1.0.2")
         self.assertEqual(self.dialog.update_button.text(), "更新を確認")
         self.assertTrue(self.dialog.update_button.isEnabled())
         phases = [card.snapshot() for card in self.dialog.cards]
@@ -413,6 +413,143 @@ class CardSettingsTests(unittest.TestCase):
         self.assertIsNotNone(buttons.button(QDialogButtonBox.StandardButton.Close))
 
 
+
+class TabNavigationTests(unittest.TestCase):
+    """Tab stays on top-level actions and phase headers, even after rebuilding cards."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.dialog = SettingsDialog(None, FocusTimer())
+        self.dialog.show()
+        self.dialog.activateWindow()
+        self.app.processEvents()
+
+    def tearDown(self):
+        self.dialog.close()
+        self.app.processEvents()
+
+    def tab_controls(self):
+        """Return the intended screen order, skipping disabled or hidden buttons."""
+        dialog = self.dialog
+        controls = [dialog.language_combo, dialog.notifications_checkbox,
+                    dialog.update_button]
+        for card in dialog.cards:
+            controls.extend((card.move_up, card.move_down, card.expand_button))
+        controls.extend((
+            dialog.add_button, dialog.pause_button, dialog.previous_button,
+            dialog.skip_button, dialog.timer_reset_button, dialog.loop_reset_button,
+            dialog.initialize_button, dialog.close_button,
+        ))
+        return [widget for widget in controls if widget.isVisible()
+                and widget.isEnabled()]
+
+    def assert_keyboard_navigation(self):
+        """Send real Qt Tab / Shift+Tab key events, including the wraparound."""
+        controls = self.tab_controls()
+        self.assertGreater(len(controls), 9)
+        for control in controls:
+            self.assertTrue(bool(control.focusPolicy() & Qt.FocusPolicy.TabFocus))
+
+        controls[0].setFocus()
+        self.app.processEvents()
+        self.assertIs(self.dialog.focusWidget(), controls[0])
+        for expected in controls[1:] + controls[:1]:
+            current = self.dialog.focusWidget()
+            QTest.keyClick(current, Qt.Key.Key_Tab)
+            self.app.processEvents()
+            self.assertIs(self.dialog.focusWidget(), expected,
+                          f"Tab after {current.objectName() or current.text()}")
+
+        for expected in list(reversed(controls[1:])) + controls[:1]:
+            current = self.dialog.focusWidget()
+            QTest.keyClick(current, Qt.Key.Key_Backtab)
+            self.app.processEvents()
+            self.assertIs(self.dialog.focusWidget(), expected,
+                          f"Shift+Tab after {current.objectName() or current.text()}")
+
+    def test_initial_tab_and_reverse_tab_follow_visual_order(self):
+        self.assertFalse(self.dialog.cards[0].move_up.isEnabled())
+        self.assertFalse(self.dialog.cards[-1].move_down.isEnabled())
+        self.assert_keyboard_navigation()
+
+    def test_editor_controls_skip_tab_but_remain_click_focusable(self):
+        card = self.dialog.cards[0]
+        for widget in (
+            card.name, card.minutes, card.color, card.gradient,
+            card.gradient_end, card.size, card.opacity, card.simple,
+            card.topmost, card.hidden, card.position, card.delete_button,
+        ):
+            self.assertEqual(widget.focusPolicy(), Qt.FocusPolicy.ClickFocus)
+            self.assertFalse(bool(widget.focusPolicy() & Qt.FocusPolicy.TabFocus))
+        self.assertEqual(card.drag_handle.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertEqual(self.dialog.scroll.focusPolicy(), Qt.FocusPolicy.NoFocus)
+
+        # Mouse editing must still work with ClickFocus. The timer and
+        # persistence callback are unchanged by the focus policy.
+        card.name.setFocus()
+        self.app.processEvents()
+        self.assertIs(self.dialog.focusWidget(), card.name)
+        QTest.keyClicks(card.name, " X")
+        self.assertTrue(card.name.text().endswith(" X"))
+        old_simple = card.simple.isChecked()
+        # QWidget.click() checks that the normal button action remains active.
+        # A synthetic mouse event may miss a scrolled widget in Qt offscreen.
+        card.simple.click()
+        self.assertNotEqual(card.simple.isChecked(), old_simple)
+        self.assert_keyboard_navigation()
+
+    def test_accordion_toggle_never_adds_body_fields_to_tab_chain(self):
+        first, second = self.dialog.cards
+        self.assertTrue(first.expand_button.isChecked())
+        first.expand_button.click()
+        second.expand_button.click()
+        self.app.processEvents()
+        self.assertFalse(first.body.isVisible())
+        self.assertTrue(second.body.isVisible())
+        self.assert_keyboard_navigation()
+        first.expand_button.click()
+        second.expand_button.click()
+        self.app.processEvents()
+        self.assert_keyboard_navigation()
+
+    def test_add_reorder_delete_and_reset_rebuild_tab_chain(self):
+        self.dialog._add_phase()
+        self.app.processEvents()
+        self.assertEqual(len(self.dialog.cards), 3)
+        self.assert_keyboard_navigation()
+
+        moving = self.dialog.cards[-1]
+        self.dialog._shift_card(moving, -1)
+        self.app.processEvents()
+        self.assertIs(self.dialog.cards[1], moving)
+        self.assert_keyboard_navigation()
+
+        with patch("focusloop.app.confirm_change", return_value=True):
+            self.dialog._confirm_delete_card(self.dialog.cards[1])
+        self.app.processEvents()
+        self.assertEqual(len(self.dialog.cards), 2)
+        self.assert_keyboard_navigation()
+
+        self.dialog.restore_defaults(default_phases(), loop_number=1)
+        self.app.processEvents()
+        self.assert_keyboard_navigation()
+
+    def test_language_switch_rebuilds_tab_chain_in_both_directions(self):
+        for index in (1, 0):
+            self.dialog.language_combo.setCurrentIndex(index)
+            self.app.processEvents()
+            self.assert_keyboard_navigation()
+
+    def test_disabled_and_hidden_controls_are_skipped(self):
+        self.dialog.update_button.setEnabled(False)
+        self.dialog.add_button.hide()
+        self.app.processEvents()
+        self.assert_keyboard_navigation()
+
+
 class AppRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -437,7 +574,7 @@ class AppRegressionTests(unittest.TestCase):
     def test_japanese_update_dialogs_use_polite_messages(self):
         self.controller.show_settings()
         self.assertEqual(self.controller.language, "ja")
-        release = Mock(version="1.0.2")
+        release = Mock(version="1.0.3")
 
         with patch.object(QMessageBox, "warning") as warning:
             self.controller._on_update_checked(None, "network error")
@@ -452,7 +589,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = info.call_args.args[2]
-            self.assertIn("新しいバージョン 1.0.2 を利用できます。", message)
+            self.assertIn("新しいバージョン 1.0.3 を利用できます。", message)
             self.assertIn("Windows配布版のみ対応しています。", message)
 
         with (
@@ -462,7 +599,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = question.call_args.args[2]
-            self.assertIn("1.0.2 に更新しますか？", message)
+            self.assertIn("1.0.3 に更新しますか？", message)
             self.assertIn("自動的に再起動します。", message)
 
         with patch.object(QMessageBox, "warning") as warning:
