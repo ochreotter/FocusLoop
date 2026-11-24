@@ -4,7 +4,10 @@ LANGUAGES = ("ja", "en")
 
 ENGLISH = {
     "言語": "Language",
-    "通知する": "Notifications",
+    "通知する": "Notify on start",
+    "通知": "Notifications",
+    "通知OFF": "Notifications off",
+    "このフェーズの開始時に通知します。": "Notify when this phase begins.",
     "設定": "Settings",
     "更新を確認": "Check for updates",
     "確認中...": "Checking...",
