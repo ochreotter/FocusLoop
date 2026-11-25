@@ -39,6 +39,40 @@ class CardSettingsTests(unittest.TestCase):
         self.dialog.close()
         self.app.processEvents()
 
+    def test_initial_dialog_height_fits_two_open_phases_plus_one_header(self):
+        dialog = self.dialog
+        # The initial expansion state and dialog width must not change.
+        self.assertEqual(dialog.width(), 850)
+        self.assertTrue(dialog.cards[0].expand_button.isChecked())
+        self.assertFalse(dialog.cards[1].expand_button.isChecked())
+
+        ideal = dialog._ideal_initial_height()
+        available = dialog.screen().availableGeometry().height()
+        cap = max(dialog.minimumHeight(), available - 48)
+        self.assertEqual(dialog.height(), min(max(dialog.minimumHeight(), ideal), cap))
+        self.assertGreater(ideal, 690)
+
+        # The window should retain its initial size as cards are opened and
+        # added; content overflow is the scroll area's responsibility.
+        start_height = dialog.height()
+        dialog.cards[1].expand_button.setChecked(True)
+        self.app.processEvents()
+        dialog._add_phase()
+        dialog.cards[2].expand_button.setChecked(False)
+        self.app.processEvents()
+        self.assertEqual(dialog.height(), start_height)
+        self.assertTrue(dialog.cards[0].expand_button.isChecked())
+        self.assertTrue(dialog.cards[1].expand_button.isChecked())
+        self.assertFalse(dialog.cards[2].expand_button.isChecked())
+        if ideal <= cap:
+            self.assertEqual(dialog.scroll.verticalScrollBar().maximum(), 0)
+
+    def test_initial_height_never_exceeds_available_screen(self):
+        dialog = self.dialog
+        available = dialog.screen().availableGeometry().height()
+        self.assertLessEqual(dialog.height(), max(dialog.minimumHeight(), available - 48))
+        self.assertGreaterEqual(dialog.height(), dialog.minimumHeight())
+
     def test_card_header_design_click_targets_and_multiple_open(self):
         self.assertEqual(len(self.dialog.cards), 2)
         self.assertIsInstance(self.dialog.scroll, QScrollArea)
@@ -214,7 +248,7 @@ class CardSettingsTests(unittest.TestCase):
 
     def test_update_controls_show_version_without_changing_timer(self):
         version = self.dialog.version_label.text()
-        self.assertEqual(version, "1.0.5")
+        self.assertEqual(version, "1.0.6")
         self.assertEqual(self.dialog.update_button.text(), "更新を確認")
         self.assertTrue(self.dialog.update_button.isEnabled())
         phases = [card.snapshot() for card in self.dialog.cards]
@@ -621,7 +655,7 @@ class AppRegressionTests(unittest.TestCase):
     def test_japanese_update_dialogs_use_polite_messages(self):
         self.controller.show_settings()
         self.assertEqual(self.controller.language, "ja")
-        release = Mock(version="1.0.6")
+        release = Mock(version="1.0.7")
 
         with patch.object(QMessageBox, "warning") as warning:
             self.controller._on_update_checked(None, "network error")
@@ -636,7 +670,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = info.call_args.args[2]
-            self.assertIn("新しいバージョン 1.0.6 を利用できます。", message)
+            self.assertIn("新しいバージョン 1.0.7 を利用できます。", message)
             self.assertIn("Windows配布版のみ対応しています。", message)
 
         with (
@@ -646,7 +680,7 @@ class AppRegressionTests(unittest.TestCase):
         ):
             self.controller._on_update_checked(release, None)
             message = question.call_args.args[2]
-            self.assertIn("1.0.6 に更新しますか？", message)
+            self.assertIn("1.0.7 に更新しますか？", message)
             self.assertIn("自動的に再起動します。", message)
 
         with patch.object(QMessageBox, "warning") as warning:

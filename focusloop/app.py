@@ -587,6 +587,60 @@ class SettingsDialog(QDialog):
         layout.addLayout(footer)
         self._set_button_cursors()
         self._set_tab_order()
+        self._resize_for_initial_phase_capacity()
+
+    def _ideal_initial_height(self) -> int:
+        """Fit two expanded cards and space for one extra collapsed header.
+
+        Measure the actual widgets so DPI, translation and font changes do not
+        require hard-coded card heights. The third header is spare scroll-room
+        even when the initial configuration has only two phases.
+        """
+        if not self.cards:
+            return self.minimumHeight()
+        self.layout().activate()
+        for card in self.cards:
+            card.body.layout().activate()
+            card.header_widget.layout().activate()
+
+        header_height = max(card.header_widget.sizeHint().height() for card in self.cards)
+        expanded_heights = [
+            card.header_widget.sizeHint().height() + card.body.sizeHint().height()
+            for card in self.cards[:2]
+        ]
+        if len(expanded_heights) == 1:
+            expanded_heights.append(expanded_heights[0])
+
+        margins = self.cards_layout.contentsMargins()
+        visible_card_count = 3  # two open cards plus one spare header
+        scroll_content_height = (
+            sum(expanded_heights) + header_height
+            + self.cards_layout.spacing() * (visible_card_count - 1)
+            + margins.top() + margins.bottom() + 12
+        )
+        outer = self.layout()
+        outer_margins = outer.contentsMargins()
+        other_rows_height = sum(
+            outer.itemAt(index).sizeHint().height()
+            for index in range(outer.count())
+            if outer.itemAt(index).widget() is not self.scroll
+        )
+        return (
+            scroll_content_height + 2 * self.scroll.frameWidth()
+            + other_rows_height
+            + outer.spacing() * (outer.count() - 1)
+            + outer_margins.top() + outer_margins.bottom()
+        )
+
+    def _resize_for_initial_phase_capacity(self) -> None:
+        """Use available screen height; let the card area scroll if needed."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        maximum_height = (
+            max(self.minimumHeight(), screen.availableGeometry().height() - 48)
+            if screen else self._ideal_initial_height()
+        )
+        height = min(max(self.minimumHeight(), self._ideal_initial_height()), maximum_height)
+        self.resize(self.width(), height)
 
     def _set_tab_order(self) -> None:
         """Follow the visible top → phase headers → footer sequence.
@@ -825,6 +879,7 @@ class FocusLoopApp(QObject):
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
         self._last_loop_saved = loop_number
         self.overlay = Overlay(self.timer_model.current_phase)
+        self._last_overlay_phase_index = self.timer_model.phase_index
         self._overlay_started = False
         self.tray = QSystemTrayIcon(clock_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
@@ -881,9 +936,42 @@ class FocusLoopApp(QObject):
         remaining = self.timer_model.remaining_seconds()
         display = f"{remaining // 60:02d}:{remaining % 60:02d}"
         phase = self.timer_model.current_phase
-        self.overlay.set_clock(
-            display, phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
+        prior_phase = self.overlay.phase_config
+        # A translucent Windows window can briefly expose its old compositor
+        # surface when the same HWND is resized and moved during a phase change.
+        # A fresh overlay prevents the previous phase's pixels from ever
+        # being moved to the new location.
+        geometry_changed = (
+            phase.font_size != prior_phase.font_size
+            or phase.position != prior_phase.position
+            or phase.simple != prior_phase.simple
+            or phase.topmost != prior_phase.topmost
         )
+        if (self.timer_model.phase_index != self._last_overlay_phase_index
+                and geometry_changed):
+            previous_overlay = self.overlay
+            was_visible = previous_overlay.isVisible()
+            next_overlay = Overlay(phase)
+            next_overlay.set_clock(
+                display, phase, self.timer_model.remaining_ratio(),
+                self.timer_model.loop_number,
+            )
+            # The new native window gets its own backing store, with final
+            # geometry and phase state before it is ever exposed.
+            next_overlay.reposition()
+            if (self._overlay_started or was_visible) and not phase.hidden:
+                next_overlay.show()
+                next_overlay.repaint()
+            self.overlay = next_overlay
+            previous_overlay.hide()
+            previous_overlay.close()
+            previous_overlay.deleteLater()
+        else:
+            self.overlay.set_clock(
+                display, phase, self.timer_model.remaining_ratio(),
+                self.timer_model.loop_number,
+            )
+        self._last_overlay_phase_index = self.timer_model.phase_index
         # Hidden is a phase display setting, not a timer pause: the model and
         # tray keep updating. Do not show a window before start() is called.
         if phase.hidden and self.overlay.isVisible():

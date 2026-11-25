@@ -18,7 +18,7 @@ from unittest.mock import patch
 from focusloop import updates
 
 
-def release_json(version="1.0.6", archive=b"zip"):
+def release_json(version="1.0.7", archive=b"zip"):
     return {
         "tag_name": version, "draft": False, "prerelease": False,
         "assets": [{
@@ -51,6 +51,7 @@ def make_archive(entries=None):
 class ReleaseCheckTests(unittest.TestCase):
     def test_versions_are_numeric_without_v_and_not_downgraded(self):
         self.assertEqual(updates.parse_version("1.0.10"), (1, 0, 10))
+        self.assertIsNone(updates.release_from_payload(release_json("1.0.6")))
         self.assertIsNone(updates.release_from_payload(release_json("1.0.5")))
         self.assertIsNone(updates.release_from_payload(release_json("1.0.4")))
         self.assertIsNone(updates.release_from_payload(release_json("1.0.3")))
@@ -58,8 +59,8 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertIsNone(updates.release_from_payload(release_json("1.0.1")))
         self.assertIsNone(updates.release_from_payload(release_json("1.0.0")))
         self.assertIsNone(updates.release_from_payload(release_json("0.9.9")))
-        self.assertEqual(updates.release_from_payload(release_json("1.0.6")).version, "1.0.6")
-        for invalid in ("v1.0.6", "1.0.6-beta", "1.0", "main", ""):
+        self.assertEqual(updates.release_from_payload(release_json("1.0.7")).version, "1.0.7")
+        for invalid in ("v1.0.7", "1.0.7-beta", "1.0", "main", ""):
             with self.subTest(invalid=invalid), self.assertRaises(updates.UpdateError):
                 updates.parse_version(invalid)
 
@@ -85,7 +86,7 @@ class ReleaseCheckTests(unittest.TestCase):
         response = io.BytesIO(json.dumps(release_json()).encode())
         with patch.object(updates.urllib.request, "urlopen", return_value=response) as get:
             release = updates.check_latest_release()
-        self.assertEqual(release.version, "1.0.6")
+        self.assertEqual(release.version, "1.0.7")
         self.assertEqual(get.call_args.args[0].full_url, updates.RELEASES_URL)
 
 
