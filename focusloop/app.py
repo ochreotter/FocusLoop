@@ -896,6 +896,7 @@ class FocusLoopApp(QObject):
         if (self.timer_model.phase_index != self._last_overlay_phase_index
                 and geometry_changed):
             previous_overlay = self.overlay
+            was_visible = previous_overlay.isVisible()
             next_overlay = Overlay(phase)
             next_overlay.set_clock(
                 display, phase, self.timer_model.remaining_ratio(),
@@ -904,7 +905,7 @@ class FocusLoopApp(QObject):
             # The new native window gets its own backing store, with final
             # geometry and phase state before it is ever exposed.
             next_overlay.reposition()
-            if self._overlay_started and not phase.hidden:
+            if (self._overlay_started or was_visible) and not phase.hidden:
                 next_overlay.show()
                 next_overlay.repaint()
             self.overlay = next_overlay
