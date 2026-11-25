@@ -825,6 +825,7 @@ class FocusLoopApp(QObject):
         self.timer_model = FocusTimer(phases, initial_loop=loop_number)
         self._last_loop_saved = loop_number
         self.overlay = Overlay(self.timer_model.current_phase)
+        self._last_overlay_phase_index = self.timer_model.phase_index
         self._overlay_started = False
         self.tray = QSystemTrayIcon(clock_icon(), qt_app)
         self.tray.setToolTip("FocusLoop")
@@ -881,9 +882,41 @@ class FocusLoopApp(QObject):
         remaining = self.timer_model.remaining_seconds()
         display = f"{remaining // 60:02d}:{remaining % 60:02d}"
         phase = self.timer_model.current_phase
-        self.overlay.set_clock(
-            display, phase, self.timer_model.remaining_ratio(), self.timer_model.loop_number
+        prior_phase = self.overlay.phase_config
+        # A translucent Windows window can briefly expose its old compositor
+        # surface when the same HWND is resized and moved during a phase change.
+        # A fresh overlay prevents the previous phase's pixels from ever
+        # being moved to the new location.
+        geometry_changed = (
+            phase.font_size != prior_phase.font_size
+            or phase.position != prior_phase.position
+            or phase.simple != prior_phase.simple
+            or phase.topmost != prior_phase.topmost
         )
+        if (self.timer_model.phase_index != self._last_overlay_phase_index
+                and geometry_changed):
+            previous_overlay = self.overlay
+            next_overlay = Overlay(phase)
+            next_overlay.set_clock(
+                display, phase, self.timer_model.remaining_ratio(),
+                self.timer_model.loop_number,
+            )
+            # The new native window gets its own backing store, with final
+            # geometry and phase state before it is ever exposed.
+            next_overlay.reposition()
+            if self._overlay_started and not phase.hidden:
+                next_overlay.show()
+                next_overlay.repaint()
+            self.overlay = next_overlay
+            previous_overlay.hide()
+            previous_overlay.close()
+            previous_overlay.deleteLater()
+        else:
+            self.overlay.set_clock(
+                display, phase, self.timer_model.remaining_ratio(),
+                self.timer_model.loop_number,
+            )
+        self._last_overlay_phase_index = self.timer_model.phase_index
         # Hidden is a phase display setting, not a timer pause: the model and
         # tray keep updating. Do not show a window before start() is called.
         if phase.hidden and self.overlay.isVisible():
