@@ -39,6 +39,40 @@ class CardSettingsTests(unittest.TestCase):
         self.dialog.close()
         self.app.processEvents()
 
+    def test_initial_dialog_height_fits_two_open_phases_plus_one_header(self):
+        dialog = self.dialog
+        # The initial expansion state and dialog width must not change.
+        self.assertEqual(dialog.width(), 850)
+        self.assertTrue(dialog.cards[0].expand_button.isChecked())
+        self.assertFalse(dialog.cards[1].expand_button.isChecked())
+
+        ideal = dialog._ideal_initial_height()
+        available = dialog.screen().availableGeometry().height()
+        cap = max(dialog.minimumHeight(), available - 48)
+        self.assertEqual(dialog.height(), min(max(dialog.minimumHeight(), ideal), cap))
+        self.assertGreater(ideal, 690)
+
+        # The window should retain its initial size as cards are opened and
+        # added; content overflow is the scroll area's responsibility.
+        start_height = dialog.height()
+        dialog.cards[1].expand_button.setChecked(True)
+        self.app.processEvents()
+        dialog._add_phase()
+        dialog.cards[2].expand_button.setChecked(False)
+        self.app.processEvents()
+        self.assertEqual(dialog.height(), start_height)
+        self.assertTrue(dialog.cards[0].expand_button.isChecked())
+        self.assertTrue(dialog.cards[1].expand_button.isChecked())
+        self.assertFalse(dialog.cards[2].expand_button.isChecked())
+        if ideal <= cap:
+            self.assertEqual(dialog.scroll.verticalScrollBar().maximum(), 0)
+
+    def test_initial_height_never_exceeds_available_screen(self):
+        dialog = self.dialog
+        available = dialog.screen().availableGeometry().height()
+        self.assertLessEqual(dialog.height(), max(dialog.minimumHeight(), available - 48))
+        self.assertGreaterEqual(dialog.height(), dialog.minimumHeight())
+
     def test_card_header_design_click_targets_and_multiple_open(self):
         self.assertEqual(len(self.dialog.cards), 2)
         self.assertIsInstance(self.dialog.scroll, QScrollArea)
