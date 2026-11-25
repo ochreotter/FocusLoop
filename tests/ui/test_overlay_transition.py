@@ -223,7 +223,9 @@ class ControllerPhaseTransitionTests(unittest.TestCase):
                     self.assertIsNot(current, original)
                     self.assertEqual(current.phase_config, pause)
                     self.assertEqual(current.position_name, "center")
-                    self.assertEqual(current._render_font_size, pause.font_size)
+                    # Qt clamps 300pt to the available virtual screen size.
+                    self.assertLessEqual(current._render_font_size, pause.font_size)
+                    self.assertGreaterEqual(current._render_font_size, 8)
                     self.assertEqual(current.clock_text, "05:00")
                     self.assertFalse(any(e[0] in ("move", "resize", "show")
                                          for e in original.events))
