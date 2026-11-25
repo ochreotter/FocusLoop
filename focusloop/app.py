@@ -587,6 +587,60 @@ class SettingsDialog(QDialog):
         layout.addLayout(footer)
         self._set_button_cursors()
         self._set_tab_order()
+        self._resize_for_initial_phase_capacity()
+
+    def _ideal_initial_height(self) -> int:
+        """Fit two expanded cards and space for one extra collapsed header.
+
+        Measure the actual widgets so DPI, translation and font changes do not
+        require hard-coded card heights. The third header is spare scroll-room
+        even when the initial configuration has only two phases.
+        """
+        if not self.cards:
+            return self.minimumHeight()
+        self.layout().activate()
+        for card in self.cards:
+            card.body.layout().activate()
+            card.header_widget.layout().activate()
+
+        header_height = max(card.header_widget.sizeHint().height() for card in self.cards)
+        expanded_heights = [
+            card.header_widget.sizeHint().height() + card.body.sizeHint().height()
+            for card in self.cards[:2]
+        ]
+        if len(expanded_heights) == 1:
+            expanded_heights.append(expanded_heights[0])
+
+        margins = self.cards_layout.contentsMargins()
+        visible_card_count = 3  # two open cards plus one spare header
+        scroll_content_height = (
+            sum(expanded_heights) + header_height
+            + self.cards_layout.spacing() * (visible_card_count - 1)
+            + margins.top() + margins.bottom() + 12
+        )
+        outer = self.layout()
+        outer_margins = outer.contentsMargins()
+        other_rows_height = sum(
+            outer.itemAt(index).sizeHint().height()
+            for index in range(outer.count())
+            if outer.itemAt(index).widget() is not self.scroll
+        )
+        return (
+            scroll_content_height + 2 * self.scroll.frameWidth()
+            + other_rows_height
+            + outer.spacing() * (outer.count() - 1)
+            + outer_margins.top() + outer_margins.bottom()
+        )
+
+    def _resize_for_initial_phase_capacity(self) -> None:
+        """Use available screen height; let the card area scroll if needed."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        maximum_height = (
+            max(self.minimumHeight(), screen.availableGeometry().height() - 48)
+            if screen else self._ideal_initial_height()
+        )
+        height = min(max(self.minimumHeight(), self._ideal_initial_height()), maximum_height)
+        self.resize(self.width(), height)
 
     def _set_tab_order(self) -> None:
         """Follow the visible top → phase headers → footer sequence.
