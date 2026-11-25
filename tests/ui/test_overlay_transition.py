@@ -4,13 +4,17 @@ Qt's offscreen platform verifies the ordering of hide, geometry changes and
 re-exposure. Windows compositor behaviour still needs an actual desktop check.
 """
 
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
+from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
+from focusloop.app import FocusLoopApp
 from focusloop.overlay import Overlay
 from focusloop.timer import default_phases
 
@@ -174,6 +178,60 @@ class OverlayPhaseTransitionTests(unittest.TestCase):
         self._assert_hidden_geometry_changes()
         self.assertNotIn("show", [e[0] for e in self.overlay.events])
         self.assertEqual(self.overlay.position_name, "bottom_right")
+
+
+
+class ControllerPhaseTransitionTests(unittest.TestCase):
+    """Ensure a hidden phase is positioned before the controller shows it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_hidden_to_visible_moves_only_while_hidden(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ini = str(Path(directory) / "settings.ini")
+            with patch(
+                "focusloop.app.QSettings",
+                side_effect=lambda *_args: QSettings(ini, QSettings.Format.IniFormat),
+            ):
+                controller = FocusLoopApp(self.app)
+                try:
+                    controller.overlay.close()
+                    overlay = TracedOverlay(controller.timer_model.current_phase)
+                    controller.overlay = overlay
+                    controller._overlay_started = True
+                    controller.update()
+                    self.app.processEvents()
+                    self.assertTrue(overlay.isVisible())
+
+                    original = controller.timer_model.phases
+                    hidden = replace(original[0], hidden=True)
+                    visible = replace(
+                        original[1], hidden=False, position="top_right",
+                        simple=True, font_size=170,
+                    )
+                    controller.timer_model.configure((hidden, visible))
+                    controller.update()
+                    self.assertFalse(overlay.isVisible())
+                    overlay.events.clear()
+
+                    controller.skip()  # Hidden Work -> Visible Break.
+                    self.app.processEvents()
+                    names = [item[0] for item in overlay.events]
+                    self.assertEqual(controller.timer_model.current_phase, visible)
+                    self.assertTrue(overlay.isVisible())
+                    self.assertIn("move", names)
+                    self.assertIn("show", names)
+                    self.assertLess(max(i for i, name in enumerate(names) if name == "move"),
+                                    names.index("show"))
+                    self.assertTrue(all(not item[1] for item in overlay.events
+                                        if item[0] in ("resize", "move")))
+                    self.assertEqual(overlay.phase_config, visible)
+                    self.assertEqual(overlay.display_style, "simple")
+                finally:
+                    controller.close()
+                    self.app.processEvents()
 
 
 if __name__ == "__main__":
