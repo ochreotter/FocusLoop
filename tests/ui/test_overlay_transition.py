@@ -188,6 +188,85 @@ class ControllerPhaseTransitionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_focus_top_right_80pt_to_break_center_300pt_uses_new_window(self):
+        # Reproduction reported on Windows: the 80pt Focus briefly appears
+        # near center before the 300pt Break is drawn there.
+        with tempfile.TemporaryDirectory() as directory:
+            ini = str(Path(directory) / "settings.ini")
+            with patch(
+                "focusloop.app.QSettings",
+                side_effect=lambda *_args: QSettings(ini, QSettings.Format.IniFormat),
+            ):
+                controller = FocusLoopApp(self.app)
+                try:
+                    focus, pause = default_phases()
+                    focus = replace(focus, name="Focus", minutes=25, font_size=80,
+                                    position="top_right", simple=False)
+                    pause = replace(pause, name="Break", minutes=5, font_size=300,
+                                    position="center", simple=False)
+                    controller.timer_model.configure((focus, pause))
+                    controller.overlay.close()
+                    original = TracedOverlay(focus)
+                    controller.overlay = original
+                    controller._overlay_started = True
+                    controller.update()
+                    self.app.processEvents()
+                    self.assertTrue(original.isVisible())
+                    self.assertEqual(original.position_name, "top_right")
+                    original.events.clear()
+
+                    # Do not ever move or resize the original native window:
+                    # it carries the old Focus backing store.
+                    with patch("focusloop.app.Overlay", TracedOverlay):
+                        controller.skip()
+                    current = controller.overlay
+                    self.assertIsNot(current, original)
+                    self.assertEqual(current.phase_config, pause)
+                    self.assertEqual(current.position_name, "center")
+                    self.assertEqual(current._render_font_size, pause.font_size)
+                    self.assertEqual(current.clock_text, "05:00")
+                    self.assertFalse(any(e[0] in ("move", "resize", "show")
+                                         for e in original.events))
+                    self.assertTrue(current.isVisible())
+                    names = [e[0] for e in current.events]
+                    self.assertIn("show", names)
+                    self.assertTrue(all(not e[1] for e in current.events
+                                        if e[0] in ("resize", "move")))
+                    self.assertLess(names.index("move"), names.index("show"))
+
+                    # Going back to the small right-aligned phase must also
+                    # leave the previous Break window in place until replaced.
+                    current.events.clear()
+                    with patch("focusloop.app.Overlay", TracedOverlay):
+                        controller.previous()
+                    self.assertIsNot(controller.overlay, current)
+                    self.assertEqual(controller.overlay.phase_config, focus)
+                    self.assertFalse(any(e[0] in ("move", "resize", "show")
+                                         for e in current.events))
+                    self.assertTrue(controller.overlay.isVisible())
+                finally:
+                    controller.close()
+                    self.app.processEvents()
+
+    def test_tick_without_transition_keeps_overlay_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ini = str(Path(directory) / "settings.ini")
+            with patch(
+                "focusloop.app.QSettings",
+                side_effect=lambda *_args: QSettings(ini, QSettings.Format.IniFormat),
+            ):
+                controller = FocusLoopApp(self.app)
+                try:
+                    controller._overlay_started = True
+                    controller.update()
+                    overlay = controller.overlay
+                    controller.update()
+                    self.assertIs(controller.overlay, overlay)
+                    self.assertTrue(controller.overlay.isVisible())
+                finally:
+                    controller.close()
+                    self.app.processEvents()
+
     def test_hidden_to_visible_moves_only_while_hidden(self):
         with tempfile.TemporaryDirectory() as directory:
             ini = str(Path(directory) / "settings.ini")
@@ -216,19 +295,23 @@ class ControllerPhaseTransitionTests(unittest.TestCase):
                     self.assertFalse(overlay.isVisible())
                     overlay.events.clear()
 
-                    controller.skip()  # Hidden Work -> Visible Break.
-                    self.app.processEvents()
-                    names = [item[0] for item in overlay.events]
+                    with patch("focusloop.app.Overlay", TracedOverlay):
+                        controller.skip()  # Hidden Work -> Visible Break.
+                    replacement = controller.overlay
+                    self.assertIsNot(replacement, overlay)
+                    self.assertFalse(any(e[0] in ("move", "resize")
+                                         for e in overlay.events))
+                    names = [item[0] for item in replacement.events]
                     self.assertEqual(controller.timer_model.current_phase, visible)
-                    self.assertTrue(overlay.isVisible())
+                    self.assertTrue(replacement.isVisible())
                     self.assertIn("move", names)
                     self.assertIn("show", names)
                     self.assertLess(max(i for i, name in enumerate(names) if name == "move"),
                                     names.index("show"))
-                    self.assertTrue(all(not item[1] for item in overlay.events
+                    self.assertTrue(all(not item[1] for item in replacement.events
                                         if item[0] in ("resize", "move")))
-                    self.assertEqual(overlay.phase_config, visible)
-                    self.assertEqual(overlay.display_style, "simple")
+                    self.assertEqual(replacement.phase_config, visible)
+                    self.assertEqual(replacement.display_style, "simple")
                 finally:
                     controller.close()
                     self.app.processEvents()
