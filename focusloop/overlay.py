@@ -143,6 +143,16 @@ class Overlay(QWidget):
         if not changed:
             self.remaining_ratio = remaining_ratio
             return
+
+        # On Windows, moving/resizing a visible translucent tool window may
+        # briefly display its old backing store at the new screen position.
+        # Apply all window-level changes while hidden, and expose only the
+        # completed phase. Normal countdown paints remain uninterrupted.
+        was_visible = self.isVisible()
+        window_transition = resized or repositioned or topmost_changed
+        if was_visible and (window_transition or phase.hidden):
+            self.hide()
+
         self.clock_text = text
         self.phase_config = phase
         self.remaining_ratio = remaining_ratio
@@ -150,16 +160,18 @@ class Overlay(QWidget):
         self.position_name = phase.position
         self.display_style = style
         if topmost_changed:
-            visible = self.isVisible()
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, phase.topmost)
-            if visible:
-                self.show()
         if resized:
             self._resize_and_reposition()
-        else:
-            if repositioned:
-                self.reposition()
-            self.update()
+        elif repositioned:
+            self.reposition()
+
+        self.update()
+        if was_visible and window_transition and not phase.hidden:
+            self.show()
+            # Flush the new frame immediately rather than leaving a queued
+            # paint after the window has been made visible.
+            self.repaint()
 
     def set_ring_progress(self, remaining_ratio: float) -> None:
         """Repaint only when the visible Qt arc angle changes, not every frame."""
