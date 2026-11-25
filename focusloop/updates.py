@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 RELEASES_URL = "https://api.github.com/repos/ochreotter/FocusLoop/releases/latest"
 RELEASES_PAGE = "https://github.com/ochreotter/FocusLoop/releases"
 ASSET_NAME = "FocusLoop-Windows.zip"
