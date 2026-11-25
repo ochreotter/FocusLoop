@@ -889,8 +889,10 @@ class FocusLoopApp(QObject):
         if phase.hidden and self.overlay.isVisible():
             self.overlay.hide()
         elif not phase.hidden and self._overlay_started and not self.overlay.isVisible():
-            self.overlay.show()
+            # Position the fully prepared phase before showing the window.
             self.overlay.reposition()
+            self.overlay.show()
+            self.overlay.repaint()
         if self.timer_model.loop_number != self._last_loop_saved:
             self._save_loop_number()
         state = (display, phase, self.timer_model.paused, self.language)
