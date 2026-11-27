@@ -248,7 +248,7 @@ class CardSettingsTests(unittest.TestCase):
 
     def test_update_controls_show_version_without_changing_timer(self):
         version = self.dialog.version_label.text()
-        self.assertEqual(version, "1.0.6")
+        self.assertEqual(version, "1.0.0")
         self.assertEqual(self.dialog.update_button.text(), "更新を確認")
         self.assertTrue(self.dialog.update_button.isEnabled())
         phases = [card.snapshot() for card in self.dialog.cards]

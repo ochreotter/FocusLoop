@@ -28,7 +28,7 @@ Get-ChildItem .\FocusLoop -Recurse -File -Filter 'PySide6*.pyd' | Select-Object 
 
 ## ソースコード・ライセンス
 
-Qt/PySide6の著作権表示とライセンスについては [サードパーティーライセンス](../THIRD_PARTY_NOTICES.md) を参照してください。使用バージョンは配布物の `DEPENDENCIES.txt` を参照し、対応するソースの提供方法は公開済みReleaseの説明をご確認ください。
+Qt/PySide6の著作権表示とライセンスについては ソースツリーの [サードパーティーライセンス](../THIRD_PARTY_NOTICES.md)（配布ZIP内では同じフォルダーの `THIRD_PARTY_NOTICES.md`）を参照してください。使用バージョンは配布物の `DEPENDENCIES.txt` を参照し、対応するソースの提供方法は公開済みReleaseの説明をご確認ください。
 
 - Qt for Pythonのソース: https://code.qt.io/pyside/pyside-setup.git
 - Qtソースコード: https://code.qt.io/cgit/qt/
