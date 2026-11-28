@@ -12,9 +12,9 @@ FocusLoopはMITライセンスのアプリケーションです。Windows配布�
 - Qt for Python: https://doc.qt.io/qtforpython-6/
 - Qtで使用される第三者コード: https://doc.qt.io/qt-6/licenses-used-in-qt.html
 
-利用者には、LGPL対象のライブラリを改変して使用する権利があります。FocusLoopのWindows配布版は、ライブラリファイルを外部に配置したフォルダー形式で提供します。互換ライブラリへの変更方法は [ライブラリ差し替え手順](docs/library-replacement.md) を参照してください。
+利用者には、LGPL対象のライブラリを改変して使用する権利があります。FocusLoopのWindows配布版は、ライブラリファイルを外部に配置したフォルダー形式で提供します。互換ライブラリへの変更方法は [ライブラリ差し替え手順](https://github.com/ochreotter/FocusLoop/blob/main/docs/library-replacement.md)（配布ZIP内では `LIBRARY_REPLACEMENT.md`） を参照してください。
 
-**対応するライブラリのソースコード**: Qt公式の条件では、使用したライブラリの対応する完全なソース（未改変でも必要）を提供するか、開発者が管理する提供経路と適切な書面オファーが必要です。第三者サイトのソースへのリンクのみではこの条件を満たしません。公開済みの各Releaseに記載される対応ソースの提供方法を確認してください。
+**対応するライブラリのソースコード**: Windows ZIP と同じ [FocusLoop Release](https://github.com/ochreotter/FocusLoop/releases) の Assets に、Qt 6.12.0 と Qt for Python 6.12.0（PySide6 Essentials と Shiboken6）のソースアーカイブを別ファイルで用意します。`qt-everywhere-src-6.12.0.tar.xz` と `pyside-setup-everywhere-src-6.12.0.tar.xz` を参照し、`Qt-PySide6-SHA256SUMS.txt` または同梱 `DEPENDENCIES.txt` でハッシュを照合してください。配布する同梱ライブラリには独自変更を加えていません。
 
 バージョンごとの依存関係は、配布ZIPに同梱する `DEPENDENCIES.txt` を参照してください。Qt自体に取り込まれた第三者コードやDLLについても、対象バージョンの著作権表示および適用ライセンスが優先されます。
 

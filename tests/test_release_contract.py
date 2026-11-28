@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import sys
 import tempfile
 import types
@@ -11,7 +12,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts import package_windows
+from scripts import fetch_release_sources, package_windows
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,6 +29,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertNotIn("draft: false", workflow)
         self.assertIn("fail_on_unmatched_files: true", workflow)
         self.assertIn("dist/FocusLoop-Windows.zip", workflow)
+        self.assertIn("python -m scripts.fetch_release_sources", workflow)
+        for filename, _, _ in fetch_release_sources.SOURCES:
+            self.assertIn(f"dist/{filename}", workflow)
         self.assertIn("pyinstaller --noconfirm --clean --onedir", workflow)
         self.assertNotIn(" --onefile", workflow)
 
@@ -45,6 +49,41 @@ class ReleaseContractTests(unittest.TestCase):
         release_docs = (ROOT / "docs/releasing.md").read_text(encoding="utf-8")
         self.assertIn("対応ソース", release_docs)
         self.assertIn("ドラフトRelease", release_docs)
+
+    def test_source_staging_rejects_altered_tarball(self):
+        with tempfile.TemporaryDirectory() as dirname:
+            output = Path(dirname)
+            archive = output / "release-source.tar.xz"
+            archive.write_bytes(b"verified source")
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            fixture = ((archive.name, "https://example.invalid/", checksum),)
+            with patch.object(fetch_release_sources, "SOURCES", fixture):
+                fetch_release_sources.fetch_all(output)
+                manifest = output / "Qt-PySide6-SHA256SUMS.txt"
+                self.assertIn(f"{checksum}  {archive.name}", manifest.read_text())
+                archive.write_bytes(b"altered source")
+                with self.assertRaisesRegex(RuntimeError, "Incorrect SHA-256"):
+                    fetch_release_sources.fetch_all(output)
+
+    def test_bundle_audit_refuses_unreviewed_dlls_and_plugins(self):
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            internal = root / "_internal"
+            plugin_dir = internal / "PySide6" / "plugins" / "platforminputcontexts"
+            plugin_dir.mkdir(parents=True)
+            core = internal / "Qt6Core.dll"
+            core.touch()
+            self.assertEqual(package_windows.audit_qt_bundle(root), [core])
+            for discovered in (
+                internal / "Qt6VirtualKeyboard.dll",
+                plugin_dir / "qtvirtualkeyboardplugin.dll",
+                plugin_dir / "UnreviewedPlugin.DLL",
+                internal / "Qt6Unknown.dll",
+            ):
+                discovered.touch()
+                with self.subTest(path=discovered), self.assertRaisesRegex(RuntimeError, "Unreviewed"):
+                    package_windows.audit_qt_bundle(root)
+                discovered.unlink()
 
     def test_user_guide_has_current_terminology(self):
         english = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -81,12 +120,17 @@ class ReleaseContractTests(unittest.TestCase):
             (bundle / "_internal" / "Qt6Core.dll").write_bytes(b"qt")
 
             qt_module = types.ModuleType("PySide6.QtCore")
-            qt_module.qVersion = lambda: "6.10.1"
+            qt_module.qVersion = lambda: package_windows.QT_VERSION
             pyside_module = types.ModuleType("PySide6")
             pyside_module.QtCore = qt_module
 
             def license_file(_url, path, _marker):
                 path.write_text("Test license text", encoding="utf-8")
+
+            def dependency_version(name):
+                if name in package_windows.DISALLOWED_PACKAGES:
+                    raise package_windows.importlib.metadata.PackageNotFoundError(name)
+                return package_windows.QT_VERSION
 
             with (
                 patch.object(package_windows, "ROOT", root),
@@ -95,7 +139,10 @@ class ReleaseContractTests(unittest.TestCase):
                 patch.object(package_windows.sys, "platform", "win32"),
                 patch.object(package_windows, "_retrieve", side_effect=license_file),
                 patch.object(package_windows, "_include_installed_licenses"),
-                patch.object(package_windows.importlib.metadata, "version", return_value="6.10.1"),
+                patch.object(
+                    package_windows.importlib.metadata, "version",
+                    side_effect=dependency_version,
+                ),
                 patch.dict(sys.modules, {"PySide6": pyside_module, "PySide6.QtCore": qt_module}),
             ):
                 output = package_windows.package()
@@ -117,7 +164,8 @@ class ReleaseContractTests(unittest.TestCase):
                     with self.subTest(required=required):
                         self.assertIn(required, names)
                 deps = archive.read("FocusLoop/DEPENDENCIES.txt").decode("utf-8")
-                self.assertIn("Qt==6.10.1", deps)
+                self.assertIn(f"Qt=={package_windows.QT_VERSION}", deps)
+                self.assertIn("qt-everywhere-src-6.12.0.tar.xz", deps)
                 self.assertIn("Qt6Core.dll", deps)
 
 

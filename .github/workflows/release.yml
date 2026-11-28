@@ -25,12 +25,18 @@ jobs:
           python -c "import os; from focusloop.updates import VERSION; tag = os.environ['GITHUB_REF_NAME']; assert tag == VERSION, f'Release tag {tag} does not match app version {VERSION}'"
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+      - name: Run Windows Qt UI regression tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests/ui -v
       - name: Generate Windows Clock icon
         run: python -m scripts.generate_icon
       - name: Build application with replaceable Qt DLLs
         run: pyinstaller --noconfirm --clean --onedir --windowed --icon .build/FocusLoop.ico --name FocusLoop main.py
       - name: Package Windows ZIP and legal notices
         run: python -m scripts.package_windows
+      - name: Stage and verify corresponding Qt and PySide source archives
+        run: python -m scripts.fetch_release_sources
       - name: Check release ZIP exists
         shell: pwsh
         run: |
@@ -44,7 +50,11 @@ jobs:
           prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: dist/FocusLoop-Windows.zip
+          files: |
+            dist/FocusLoop-Windows.zip
+            dist/qt-everywhere-src-6.12.0.tar.xz
+            dist/pyside-setup-everywhere-src-6.12.0.tar.xz
+            dist/Qt-PySide6-SHA256SUMS.txt
           body: |
             FocusLoop のWindows版です。FocusLoop-Windows.zipをダウンロードし、
             ZIP内のFocusLoopフォルダーを展開してFocusLoop.exeを起動してください。
@@ -54,3 +64,8 @@ jobs:
             著作権・ライセンス情報と差し替え方法はZIP内の
             LICENSE、THIRD_PARTY_NOTICES.md、LIBRARY_REPLACEMENT.md、
             licenses/をご覧ください。
+
+            同梱Qt/PySide6/Shiboken6 6.12.0の対応ソースは、同じReleaseの
+            qt-everywhere-src-6.12.0.tar.xz と
+            pyside-setup-everywhere-src-6.12.0.tar.xz で配布します。
+            SHA-256は同梱のQt-PySide6-SHA256SUMS.txtをご確認ください。

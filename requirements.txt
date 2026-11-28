@@ -1,1 +1,2 @@
-PySide6>=6.7,<7
+# Use the Qt modules FocusLoop actually imports; avoid the PySide6 meta-package.
+PySide6-Essentials==6.12.0
